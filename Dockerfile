@@ -12,3 +12,10 @@ RUN yum install -y openssl openssl-devel ncurses ncurses-devel wget git tar && y
 
 FROM amazonlinux:2023
 COPY --from=substrate /usr/local /usr/local
+ENV MIX_ENV lambda 
+# only for now until we publish the package - may will be here for ever, because of git packages
+RUN yum install -y git 
+RUN mkdir /mnt/code
+RUN mix local.rebar --force && \
+    mix local.hex --force
+WORKDIR /mnt/code
