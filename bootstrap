@@ -1,0 +1,6 @@
+
+    #!/bin/sh
+    set -euo pipefail
+    export ELIXIR_ERL_OPTIONS="+fnu"
+    _build/dev/rel/aws_lambda/bin/aws_lambda start
+    
