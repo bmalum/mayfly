@@ -20,10 +20,58 @@ defmodule AWSLambda.Loop do
       Runtime.next_invocation()
 
     req_id = AWSLambda.Helpers.get_request_id(headers)
+    {module, function} = get_handler()
+
+    try do
+      case Kernel.apply(module, function, [Jason.decode!(body)]) do
+        {:error, error} -> Runtime.invocation_error(req_id, convert_error(error))
+        {:ok, result} -> Runtime.invocation_response(req_id, result)
+      end
+    rescue 
+      e in UndefinedFunctionError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__)) 
+      e in RuntimeError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
+      e -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
+    end
+
 
     Runtime.invocation_response(req_id, "Response")
     {:noreply, state}
   end
+
+  def convert_error(error, stackTrace \\ nil) do
+    %{
+      errorMessage: error.message,
+      errorType: Map.get(error, :__struct__),
+      stackTrace: Exception.format_stacktrace(stackTrace) 
+    }
+  end
+
+  def dummy(payload) do
+    {:ok, "Please provide a _HANDLE Enviroment Variable containing the Function you would like to call prefixed with Elixir."}
+  end
+
+  def dummy_error(payload) do
+    {:error, "Error"}
+  end
+
+
+  def dummy_raise_error(payload) do
+    raise(RuntimeError, "some error happened")
+  end
+
+  def dummy_success(payload) do
+    {:ok, "Success"}
+  end
+
+
+  def get_handler() do
+    handler = System.get_env("_HANDLER") || "Elixir.AWSLambda.dummy"
+      handler_split_list = handler |> String.split(".", trim: true)
+      function = handler_split_list  |> List.last() |> String.to_atom()
+      module = List.delete_at(handler_split_list, length(handler_split_list)-1) |> Enum.join(".") |> String.to_atom()
+      {module, function}
+  end
+
 end
 
 defmodule AWSLambda.Helpers do
