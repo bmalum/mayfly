@@ -38,7 +38,7 @@ defmodule AWSLambda.Loop do
 
   def convert_error(error, stackTrace \\ nil) do
     %{
-      errorMessage: error.message || "no error message provided",
+      errorMessage: Map.get(error, :message, "no message provided"),
       errorType: Map.get(error, :__struct__),
       stackTrace: Exception.format_stacktrace(stackTrace) 
     }
