@@ -33,14 +33,12 @@ defmodule AWSLambda.Loop do
       e -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
     end
 
-
-    Runtime.invocation_response(req_id, "Response")
     {:noreply, state}
   end
 
   def convert_error(error, stackTrace \\ nil) do
     %{
-      errorMessage: error.message,
+      errorMessage: error.message || "no error message provided",
       errorType: Map.get(error, :__struct__),
       stackTrace: Exception.format_stacktrace(stackTrace) 
     }
