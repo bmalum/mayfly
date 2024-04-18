@@ -27,8 +27,8 @@ defmodule AWSLambda.Loop do
         {:error, error} -> Runtime.invocation_error(req_id, convert_error(error))
         {:ok, result} -> Runtime.invocation_response(req_id, result)
       end
-    rescue 
-      e in UndefinedFunctionError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__)) 
+    rescue
+      e in UndefinedFunctionError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
       e in RuntimeError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
       e -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
     end
@@ -40,8 +40,8 @@ defmodule AWSLambda.Loop do
     %{
       errorMessage: Map.get(error, :message, "no message provided"),
       errorType: Map.get(error, :__struct__),
-      stackTrace: Exception.format_stacktrace(stackTrace) 
-    }
+      stackTrace: Exception.format_stacktrace(stackTrace)
+    } |> IO.inspect()
   end
 
   def dummy(payload) do
