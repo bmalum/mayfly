@@ -1,78 +1,81 @@
 defmodule AWSLambda.Loop do
-  use GenServer
-  alias AWSLambda.Runtime
-  import AWSLambda.Runtime
+  @moduledoc """
+  GenServer that handles the AWS Lambda event loop.
+  Continuously polls for new invocations and processes them.
+  """
 
+  use GenServer
+  alias AWSLambda.{Runtime, Handler, Error}
+  require Logger
+
+  @doc """
+  Starts the Lambda event loop GenServer.
+  """
   def start_link(state) do
-    IO.puts("GenServer Started")
+    Logger.info("Starting AWS Lambda event loop")
     GenServer.start_link(__MODULE__, state, name: __MODULE__)
   end
 
-  def init(map) do
+  @doc """
+  Initializes the GenServer and triggers the first loop iteration.
+  """
+  def init(state) do
+    Logger.debug("Initializing Lambda event loop")
     send(self(), :loop)
-    {:ok, map}
+    {:ok, state}
   end
 
+  @doc """
+  Handles the main event loop for processing Lambda invocations.
+  """
   def handle_info(:loop, state) do
+    # Schedule the next iteration immediately
     send(self(), :loop)
 
-    {:ok, {protocol, headers, body}} =
-      Runtime.next_invocation()
-
-    req_id = AWSLambda.Helpers.get_request_id(headers)
-    {module, function} = get_handler()
-
-    try do
-      case Kernel.apply(module, function, [Jason.decode!(body)]) do
-        {:error, error} -> Runtime.invocation_error(req_id, convert_error(error))
-        {:ok, result} -> Runtime.invocation_response(req_id, result)
-      end
-    rescue
-      e in UndefinedFunctionError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
-      e in RuntimeError -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
-      e -> Runtime.invocation_error(req_id, convert_error(e, __STACKTRACE__))
+    # Get the next invocation
+    case Runtime.next_invocation() do
+      {:ok, {_protocol, headers, body}} ->
+        process_invocation(headers, body)
+      {:error, reason} ->
+        Logger.error("Failed to get next invocation: #{inspect(reason)}")
     end
 
     {:noreply, state}
   end
 
-  def convert_error(error, stackTrace \\ nil) do
-    %{
-      errorMessage: Map.get(error, :message, "no message provided"),
-      errorType: Map.get(error, :__struct__),
-      stackTrace: Exception.format_stacktrace(stackTrace)
-    } |> IO.inspect()
+  # Private function to process an invocation
+  defp process_invocation(headers, body) do
+    req_id = AWSLambda.Helpers.get_request_id(headers)
+    handler = Handler.resolve()
+
+    Logger.debug("Processing invocation #{req_id} with handler #{inspect(handler)}")
+
+    payload =
+      try do
+        Jason.decode!(body)
+      rescue
+        e ->
+          Logger.error("Failed to decode request body: #{inspect(e)}")
+          Runtime.invocation_error(req_id, Error.format_error(e, __STACKTRACE__))
+          %{}
+      end
+
+    case Handler.execute(payload, handler) do
+      {:ok, result} -> Runtime.invocation_response(req_id, result)
+      {:error, error} -> Runtime.invocation_error(req_id, error)
+    end
   end
-
-  def dummy(payload) do
-    {:ok, "Please provide a _HANDLE Enviroment Variable containing the Function you would like to call prefixed with Elixir."}
-  end
-
-  def dummy_error(payload) do
-    {:error, "Error"}
-  end
-
-
-  def dummy_raise_error(payload) do
-    raise(RuntimeError, "some error happened")
-  end
-
-  def dummy_success(payload) do
-    {:ok, "Success"}
-  end
-
-
-  def get_handler() do
-    handler = System.get_env("_HANDLER") || "Elixir.AWSLambda.dummy"
-      handler_split_list = handler |> String.split(".", trim: true)
-      function = handler_split_list  |> List.last() |> String.to_atom()
-      module = List.delete_at(handler_split_list, length(handler_split_list)-1) |> Enum.join(".") |> String.to_atom()
-      {module, function}
-  end
-
 end
 
 defmodule AWSLambda.Helpers do
+  @moduledoc """
+  Helper functions for AWS Lambda runtime.
+  """
+
+  @doc """
+  Extracts the request ID from Lambda invocation headers.
+  """
+  @spec get_request_id(list()) :: binary()
   def get_request_id(headers) do
     headers |> Enum.into(%{}) |> Map.get(~c"lambda-runtime-aws-request-id")
   end
