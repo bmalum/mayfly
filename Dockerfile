@@ -1,4 +1,4 @@
-FROM amazonlinux:2023-minimal
+FROM amazonlinux:2023
 
 # Install dependencies and build Erlang/Elixir in a single layer
 RUN yum install -y openssl openssl-devel ncurses ncurses-devel wget git tar unzip && \
