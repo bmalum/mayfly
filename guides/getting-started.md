@@ -16,7 +16,7 @@ Add Mayfly to your project's dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mayfly, git: "https://github.com/bmalum/mayfly", branch: "main"}
+    {:mayfly, github: "bmalum/mayfly"}
   ]
 end
 ```

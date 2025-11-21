@@ -27,7 +27,7 @@ Unlike generic custom runtimes, Mayfly is purpose-built for Elixir, bringing the
 # In mix.exs
 def deps do
   [
-    {:mayfly, git: "https://github.com/bmalum/mayfly", branch: "main"}
+    {:mayfly, github: "bmalum/mayfly"}
   ]
 end
 
@@ -81,7 +81,7 @@ Add Mayfly to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mayfly, git: "https://github.com/bmalum/mayfly", branch: "main"}
+    {:mayfly, github: "bmalum/mayfly"}
   ]
 end
 ```
