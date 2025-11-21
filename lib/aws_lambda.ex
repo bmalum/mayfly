@@ -1,4 +1,4 @@
-defmodule AWSLambda do
+defmodule Mayfly do
   @moduledoc """
   Mayfly - AWS Lambda Custom Runtime for Elixir.
 
@@ -8,14 +8,19 @@ defmodule AWSLambda do
   use Application
 
   @doc """
-  Starts the AWSLambda application.
+  Starts the Mayfly application.
 
   This function is called automatically by the Elixir runtime when the application starts.
   It initializes the supervision tree and starts the Lambda event loop.
   """
   @spec start(any(), any()) :: {:ok, pid()} | {:error, any()}
   def start(_type, _args) do
-    AWSLambda.Supervisor.start_link()
+    if Mix.env() == :test do
+      # Don't start the supervisor in test mode
+      {:ok, self()}
+    else
+      Mayfly.Supervisor.start_link()
+    end
   end
 
   @doc """
@@ -23,16 +28,16 @@ defmodule AWSLambda do
 
   ## Examples
 
-      iex> AWSLambda.hello()
+      iex> Mayfly.hello()
       :world
 
   """
   def hello, do: :world
 end
 
-defmodule AWSLambda.Supervisor do
+defmodule Mayfly.Supervisor do
   @moduledoc """
-  Supervisor for the AWSLambda application.
+  Supervisor for the Mayfly application.
 
   This module defines the supervision tree for the Lambda runtime,
   managing the lifecycle of the Lambda event loop.
@@ -53,7 +58,7 @@ defmodule AWSLambda.Supervisor do
   @spec init(:ok) :: {:ok, {Supervisor.sup_flags(), [Supervisor.child_spec()]}}
   def init(:ok) do
     children = [
-      %{id: AWSLambda.Loop, start: {AWSLambda.Loop, :start_link, [[]]}}
+      %{id: Mayfly.Loop, start: {Mayfly.Loop, :start_link, [[]]}}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

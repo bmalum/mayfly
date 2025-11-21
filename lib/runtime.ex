@@ -1,4 +1,4 @@
-defmodule AWSLambda.Runtime do
+defmodule Mayfly.Runtime do
   @moduledoc """
   Handles communication with the AWS Lambda Runtime API.
   Provides functions for fetching invocations and sending responses.
@@ -43,7 +43,7 @@ defmodule AWSLambda.Runtime do
         :post,
         {~c"http://#{service_endpoint()}/runtime/invocation/#{aws_req_id}/response",
          [], ~c"application/json", Jason.encode!(response)},
-        [],
+        [{:timeout, 5000}],
         []
       )
     rescue
@@ -65,7 +65,7 @@ defmodule AWSLambda.Runtime do
         :post,
         {~c"http://#{service_endpoint()}/runtime/init/error",
          [], ~c"application/json", Jason.encode!(error)},
-        [],
+        [{:timeout, 5000}],
         []
       )
     rescue
@@ -87,7 +87,7 @@ defmodule AWSLambda.Runtime do
         :post,
         {~c"http://#{service_endpoint()}/runtime/invocation/#{aws_req_id}/error",
          [], ~c"application/json", Jason.encode!(error)},
-        [],
+        [{:timeout, 5000}],
         []
       )
     rescue

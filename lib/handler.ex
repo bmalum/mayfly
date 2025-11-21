@@ -1,4 +1,4 @@
-defmodule AWSLambda.Handler do
+defmodule Mayfly.Handler do
   @moduledoc """
   Handles the resolution and execution of Lambda function handlers.
   """
@@ -10,21 +10,35 @@ defmodule AWSLambda.Handler do
   ## Examples
 
       iex> System.put_env("_HANDLER", "Elixir.MyModule.my_function")
-      iex> AWSLambda.Handler.resolve()
+      iex> Mayfly.Handler.resolve()
       {MyModule, :my_function}
   """
   @spec resolve() :: {module(), atom()}
   def resolve do
-    handler = System.get_env("_HANDLER") || "Elixir.AWSLambda.default_handler"
-    handler_split_list = handler |> String.split(".", trim: true)
-    function = handler_split_list |> List.last() |> String.to_atom()
-    module =
-      handler_split_list
-      |> List.delete_at(length(handler_split_list) - 1)
-      |> Enum.join(".")
-      |> String.to_atom()
-
-    {module, function}
+    handler = System.get_env("_HANDLER") || "Elixir.Mayfly.Handler.default_handler"
+    
+    case String.split(handler, ".", trim: true) do
+      parts when length(parts) < 2 ->
+        require Logger
+        Logger.error("Invalid handler format (expected Module.function): #{handler}")
+        {Mayfly.Handler, :default_handler}
+      
+      parts ->
+        function = parts |> List.last() |> String.to_existing_atom()
+        module =
+          parts
+          |> Enum.drop(-1)
+          |> Enum.join(".")
+          |> String.to_existing_atom()
+        
+        {module, function}
+    end
+  rescue
+    ArgumentError ->
+      require Logger
+      handler = System.get_env("_HANDLER") || "Elixir.Mayfly.Handler.default_handler"
+      Logger.error("Handler not found or not loaded: #{handler}")
+      {Mayfly.Handler, :default_handler}
   end
 
   @doc """
@@ -33,19 +47,23 @@ defmodule AWSLambda.Handler do
   """
   @spec execute(map(), {module(), atom()}) :: {:ok, any()} | {:error, map()}
   def execute(payload, {module, function}) do
+    require Logger
+
     try do
       case Kernel.apply(module, function, [payload]) do
-        {:error, error} -> {:error, AWSLambda.Error.format_error(error)}
+        {:error, error} -> {:error, Mayfly.Error.format_error(error)}
         {:ok, result} -> {:ok, result}
-        other -> {:ok, other}  # Handle non-standard returns
+        other ->
+          Logger.warning("Handler returned non-standard response (expected {:ok, result} or {:error, reason}): #{inspect(other)}")
+          {:ok, other}
       end
     rescue
       e in UndefinedFunctionError ->
-        {:error, AWSLambda.Error.format_error(e, __STACKTRACE__)}
+        {:error, Mayfly.Error.format_error(e, __STACKTRACE__)}
       e in RuntimeError ->
-        {:error, AWSLambda.Error.format_error(e, __STACKTRACE__)}
+        {:error, Mayfly.Error.format_error(e, __STACKTRACE__)}
       e ->
-        {:error, AWSLambda.Error.format_error(e, __STACKTRACE__)}
+        {:error, Mayfly.Error.format_error(e, __STACKTRACE__)}
     end
   end
 
