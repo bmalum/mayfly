@@ -1,4 +1,4 @@
-defmodule AWSLambda.Error do
+defmodule Mayfly.Error do
   @moduledoc """
   Error handling utilities for AWS Lambda functions.
   Provides standardized error formatting and conversion functions.

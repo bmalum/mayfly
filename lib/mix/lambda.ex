@@ -170,7 +170,7 @@ defmodule Mix.Tasks.Lambda.Build do
 
       wd = File.cwd!()
 
-      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", "./deps/aws_lambda/Dockerfile", "."]),
+      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", "./deps/mayfly/Dockerfile", "."]),
            {:ok, _} <- run_command("docker", ["run", "--rm", "-v", "#{wd}:/mnt/code", "elbc:latest", "mix", "lambda.build", "--zip"]) do
         IO.puts("#{IO.ANSI.green()}Docker build completed successfully#{IO.ANSI.reset()}")
         :ok

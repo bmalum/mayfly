@@ -27,7 +27,7 @@ Unlike generic custom runtimes, Mayfly is purpose-built for Elixir, bringing the
 # In mix.exs
 def deps do
   [
-    {:mayfly, git: "https://github.com/bmalum/mayfly", branch: "main"}
+    {:mayfly, github: "bmalum/mayfly"}
   ]
 end
 
@@ -50,6 +50,7 @@ $ mix lambda.build --zip
 - [Requirements](#requirements)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Documentation](#documentation)
 - [Configuration](#configuration)
 - [Error Handling](#error-handling)
 - [Deployment](#deployment)
@@ -80,7 +81,7 @@ Add Mayfly to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:mayfly, git: "https://github.com/bmalum/mayfly", branch: "main"}
+    {:mayfly, github: "bmalum/mayfly"}
   ]
 end
 ```
@@ -178,6 +179,33 @@ defmodule ImageGenerator do
   end
 end
 ```
+
+## Documentation
+
+### Online Documentation
+
+Full documentation with guides and API reference is available:
+
+- **[Getting Started Guide](guides/getting-started.md)** - Step-by-step tutorial for your first Lambda function
+- **[Deployment Guide](guides/deployment.md)** - Advanced deployment scenarios and best practices
+- **[API Reference](https://hexdocs.pm/mayfly)** - Complete module and function documentation
+
+### Generate Documentation Locally
+
+Generate and view the documentation on your machine:
+
+```bash
+mix docs
+open doc/index.html
+```
+
+### Quick Links
+
+- [Handler Patterns](guides/getting-started.md#handler-patterns)
+- [API Gateway Integration](guides/deployment.md#api-gateway-integration)
+- [Error Handling](guides/deployment.md#error-handling)
+- [Event Sources](guides/deployment.md#event-sources)
+- [Performance Optimization](guides/deployment.md#performance-optimization)
 
 ## Configuration
 

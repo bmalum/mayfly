@@ -1,8 +1,8 @@
-defmodule AWSLambdaTest do
+defmodule MayflyTest do
   use ExUnit.Case
-  doctest AWSLambda
+  doctest Mayfly
 
   test "greets the world" do
-    assert AWSLambda.hello() == :world
+    assert Mayfly.hello() == :world
   end
 end

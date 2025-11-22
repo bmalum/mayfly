@@ -31,6 +31,9 @@ erl_crash.dump
 # Generated Lambda zips
 lambda.zip
 
+# Generated bootstrap script
+bootstrap
+
 # Ignore package tarball (built via "mix hex.build").
 aws_lambda-*.tar
 
