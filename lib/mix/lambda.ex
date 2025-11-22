@@ -181,8 +181,9 @@ defmodule Mix.Tasks.Lambda.Build do
       IO.puts("#{IO.ANSI.cyan()}Building with Docker...#{IO.ANSI.reset()}")
 
       wd = File.cwd!()
+      dockerfile_path = if File.exists?("./lambda.Dockerfile"), do: "./lambda.Dockerfile", else: "./deps/mayfly/lambda.Dockerfile"
 
-      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", "./deps/mayfly/Dockerfile", "."]),
+      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", dockerfile_path, "."]),
            {:ok, _} <- run_command("docker", ["run", "--rm", "-v", "#{wd}:/mnt/code", "elbc:latest", "mix", "lambda.build", "--zip"]) do
         IO.puts("#{IO.ANSI.green()}Docker build completed successfully#{IO.ANSI.reset()}")
         :ok
@@ -204,18 +205,17 @@ defmodule Mix.Tasks.Lambda.Build do
     if Keyword.get(opts, :zip, false) do
       IO.write("#{IO.ANSI.cyan()}Creating ZIP archive...#{IO.ANSI.reset()} ")
 
-      # Get the output directory if specified, or use the current directory
       outdir = Keyword.get(opts, :outdir, ".")
-      # Ensure the output directory exists
       File.mkdir_p!(outdir)
-
-      # Create the zip file path
       zip_path = Path.join(outdir, "lambda.zip")
-
-      filelist_to_zip = ["./_build/lambda", "bootstrap"]
-      params = ["-r", "-9", zip_path] ++ filelist_to_zip
-
-      case run_command("zip", params) do
+      project_name = Mix.Project.get().project()[:app]
+      release_dir = "_build/lambda/rel/#{project_name}"
+      
+      # Remove old zip if exists
+      File.rm(zip_path)
+      
+      # Zip release directory contents and bootstrap
+      case run_command("sh", ["-c", "cd #{release_dir} && zip -r -9 #{File.cwd!()}/#{zip_path} . && cd #{File.cwd!()} && zip -j #{zip_path} bootstrap"]) do
         {:ok, _} ->
           IO.puts("#{IO.ANSI.green()}done#{IO.ANSI.reset()}")
           :ok
@@ -301,7 +301,7 @@ defmodule Mix.Tasks.Lambda.Build do
     #!/bin/sh
     set -euo pipefail
     export ELIXIR_ERL_OPTIONS="+fnu"
-    _build/lambda/rel/#{project_name}/bin/#{project_name} start
+    bin/#{project_name} start
     """
   end
 end
