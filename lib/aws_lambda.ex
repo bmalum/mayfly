@@ -15,12 +15,7 @@ defmodule Mayfly do
   """
   @spec start(any(), any()) :: {:ok, pid()} | {:error, any()}
   def start(_type, _args) do
-    if Mix.env() == :test do
-      # Don't start the supervisor in test mode
-      {:ok, self()}
-    else
-      Mayfly.Supervisor.start_link()
-    end
+    Mayfly.Supervisor.start_link()
   end
 
   @doc """
