@@ -59,10 +59,10 @@ defmodule Mix.Tasks.Lambda.Build do
   def run(args) do
     with {:ok, opts} <- parse_and_validate_args(args),
          old_mix_env <- setup_environment(),
-         :ok <- build_release(),
-         {:ok, bootstrap_path} <- create_bootstrap(opts),
+         :ok <- maybe_build_local(opts),
+         {:ok, bootstrap_path} <- maybe_create_bootstrap(opts),
          :ok <- handle_docker_build(opts, bootstrap_path),
-         :ok <- create_zip_archive(opts, bootstrap_path),
+         :ok <- maybe_create_zip(opts, bootstrap_path),
          :ok <- restore_environment(old_mix_env) do
       print_summary(opts)
     else
@@ -73,6 +73,18 @@ defmodule Mix.Tasks.Lambda.Build do
         Logger.error("Build failed: #{reason}")
         exit({:shutdown, 1})
     end
+  end
+
+  defp maybe_build_local(opts) do
+    if Keyword.get(opts, :docker, false), do: :ok, else: build_release()
+  end
+
+  defp maybe_create_bootstrap(opts) do
+    if Keyword.get(opts, :docker, false), do: {:ok, nil}, else: create_bootstrap(opts)
+  end
+
+  defp maybe_create_zip(opts, bootstrap_path) do
+    if Keyword.get(opts, :docker, false), do: :ok, else: create_zip_archive(opts, bootstrap_path)
   end
 
   @doc """
@@ -169,8 +181,9 @@ defmodule Mix.Tasks.Lambda.Build do
       IO.puts("#{IO.ANSI.cyan()}Building with Docker...#{IO.ANSI.reset()}")
 
       wd = File.cwd!()
+      dockerfile_path = if File.exists?("./lambda.Dockerfile"), do: "./lambda.Dockerfile", else: "./deps/mayfly/lambda.Dockerfile"
 
-      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", "./deps/mayfly/Dockerfile", "."]),
+      with {:ok, _} <- run_command("docker", ["build", "-t", "elbc", "-f", dockerfile_path, "."]),
            {:ok, _} <- run_command("docker", ["run", "--rm", "-v", "#{wd}:/mnt/code", "elbc:latest", "mix", "lambda.build", "--zip"]) do
         IO.puts("#{IO.ANSI.green()}Docker build completed successfully#{IO.ANSI.reset()}")
         :ok
@@ -192,18 +205,17 @@ defmodule Mix.Tasks.Lambda.Build do
     if Keyword.get(opts, :zip, false) do
       IO.write("#{IO.ANSI.cyan()}Creating ZIP archive...#{IO.ANSI.reset()} ")
 
-      # Get the output directory if specified, or use the current directory
       outdir = Keyword.get(opts, :outdir, ".")
-      # Ensure the output directory exists
       File.mkdir_p!(outdir)
-
-      # Create the zip file path
       zip_path = Path.join(outdir, "lambda.zip")
-
-      filelist_to_zip = ["./_build/lambda", "bootstrap"]
-      params = ["-r", "-9", zip_path] ++ filelist_to_zip
-
-      case run_command("zip", params) do
+      project_name = Mix.Project.get().project()[:app]
+      release_dir = "_build/lambda/rel/#{project_name}"
+      
+      # Remove old zip if exists
+      File.rm(zip_path)
+      
+      # Zip release directory contents and bootstrap
+      case run_command("sh", ["-c", "cd #{release_dir} && zip -r -9 #{File.cwd!()}/#{zip_path} . && cd #{File.cwd!()} && zip -j #{zip_path} bootstrap"]) do
         {:ok, _} ->
           IO.puts("#{IO.ANSI.green()}done#{IO.ANSI.reset()}")
           :ok
@@ -289,7 +301,7 @@ defmodule Mix.Tasks.Lambda.Build do
     #!/bin/sh
     set -euo pipefail
     export ELIXIR_ERL_OPTIONS="+fnu"
-    _build/lambda/rel/#{project_name}/bin/#{project_name} start
+    bin/#{project_name} start
     """
   end
 end

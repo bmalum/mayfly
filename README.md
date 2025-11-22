@@ -228,6 +228,36 @@ Example:
 mix lambda.build --zip --docker
 ```
 
+### Custom Docker Build Environment
+
+You can provide your own `lambda.Dockerfile` in your project root to customize the build environment. This is useful when:
+- Your dependencies require specific system libraries
+- You need a different Erlang/Elixir version
+- You want to add native dependencies for NIFs
+
+Create a `lambda.Dockerfile` in your project root:
+```dockerfile
+FROM amazonlinux:2023
+
+# Add your custom system dependencies
+RUN yum install -y imagemagick-devel libxml2-devel
+
+# Install Erlang/Elixir (customize versions as needed)
+RUN yum install -y wget tar gcc make && \
+    wget https://github.com/erlang/otp/releases/download/OTP-27.2/otp_src_27.2.tar.gz && \
+    tar -zxf otp_src_27.2.tar.gz && \
+    cd otp_src_27.2 && \
+    ./configure --without-javac && \
+    make -j$(nproc) && make install && \
+    cd / && rm -rf otp_src_27.2*
+
+ENV MIX_ENV=lambda
+WORKDIR /mnt/code
+RUN mix local.rebar --force && mix local.hex --force
+```
+
+If no `lambda.Dockerfile` is found in your project, Mayfly will use the default one from the library.
+
 ## Error Handling
 
 Mayfly provides standardized error handling for Lambda functions:
