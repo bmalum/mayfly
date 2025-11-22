@@ -59,10 +59,10 @@ defmodule Mix.Tasks.Lambda.Build do
   def run(args) do
     with {:ok, opts} <- parse_and_validate_args(args),
          old_mix_env <- setup_environment(),
-         :ok <- build_release(),
-         {:ok, bootstrap_path} <- create_bootstrap(opts),
+         :ok <- maybe_build_local(opts),
+         {:ok, bootstrap_path} <- maybe_create_bootstrap(opts),
          :ok <- handle_docker_build(opts, bootstrap_path),
-         :ok <- create_zip_archive(opts, bootstrap_path),
+         :ok <- maybe_create_zip(opts, bootstrap_path),
          :ok <- restore_environment(old_mix_env) do
       print_summary(opts)
     else
@@ -73,6 +73,18 @@ defmodule Mix.Tasks.Lambda.Build do
         Logger.error("Build failed: #{reason}")
         exit({:shutdown, 1})
     end
+  end
+
+  defp maybe_build_local(opts) do
+    if Keyword.get(opts, :docker, false), do: :ok, else: build_release()
+  end
+
+  defp maybe_create_bootstrap(opts) do
+    if Keyword.get(opts, :docker, false), do: {:ok, nil}, else: create_bootstrap(opts)
+  end
+
+  defp maybe_create_zip(opts, bootstrap_path) do
+    if Keyword.get(opts, :docker, false), do: :ok, else: create_zip_archive(opts, bootstrap_path)
   end
 
   @doc """
