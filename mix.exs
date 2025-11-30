@@ -19,7 +19,9 @@ defmodule Mayfly.MixProject do
         extras: ["README.md", "CHANGELOG.md", "guides/getting-started.md", "guides/deployment.md"],
         groups_for_extras: [
           "Guides": ~r/guides\/.*/
-        ]
+        ],
+        assets: %{"mayfly.png" => "assets/mayfly.png"},
+        canonical: "https://elixir-aws-lambda.dev/docs"
       ]
     ]
   end
