@@ -184,11 +184,12 @@ end
 
 ### Online Documentation
 
-Full documentation with guides and API reference is available:
+Full documentation with guides and API reference is available at **[elixir-aws-lambda.dev/docs](https://elixir-aws-lambda.dev/docs/)**
 
-- **[Getting Started Guide](guides/getting-started.md)** - Step-by-step tutorial for your first Lambda function
-- **[Deployment Guide](guides/deployment.md)** - Advanced deployment scenarios and best practices
-- **[API Reference](https://hexdocs.pm/mayfly)** - Complete module and function documentation
+Quick links:
+- **[Getting Started Guide](https://elixir-aws-lambda.dev/docs/getting-started.html)** - Step-by-step tutorial for your first Lambda function
+- **[Deployment Guide](https://elixir-aws-lambda.dev/docs/deployment.html)** - Advanced deployment scenarios and best practices
+- **[API Reference](https://elixir-aws-lambda.dev/docs/api-reference.html)** - Complete module and function documentation
 
 ### Generate Documentation Locally
 
@@ -198,14 +199,6 @@ Generate and view the documentation on your machine:
 mix docs
 open doc/index.html
 ```
-
-### Quick Links
-
-- [Handler Patterns](guides/getting-started.md#handler-patterns)
-- [API Gateway Integration](guides/deployment.md#api-gateway-integration)
-- [Error Handling](guides/deployment.md#error-handling)
-- [Event Sources](guides/deployment.md#event-sources)
-- [Performance Optimization](guides/deployment.md#performance-optimization)
 
 ## Configuration
 
