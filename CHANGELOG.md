@@ -30,6 +30,8 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   and runs its `init/1`, and compares the local OTP with a layer's
   (`--layer ARN`); without `--layer` it looks the matching public layer up in
   the catalog at elixir-aws-lambda.dev/layers for `--arch`/`--region`.
+- Dialyzer PLTs are kept in `_build/plts` (a `priv/plts` location was shipped
+  into consumer releases).
 - The Layers workflow publishes the ARN index to the website catalog
   (`/layers/` page and static JSON resolver).
 - `Mayfly.Response.stream/2` accepts `send_timeout:` to bound a stalled

@@ -21,8 +21,8 @@ defmodule Mayfly.MixProject do
       releases: releases(),
       dialyzer: [
         plt_add_apps: [:mix, :ex_unit, :telemetry, :inets, :ssl, :public_key],
-        plt_local_path: "priv/plts",
-        plt_core_path: "priv/plts"
+        plt_local_path: "_build/plts",
+        plt_core_path: "_build/plts"
       ]
     ]
   end
