@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.18.4"
+            otp: "27.3"
+            lint: true
+          - elixir: "1.19"
+            otp: "28"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+      - run: mix deps.get
+
+      - if: matrix.lint
+        run: mix format --check-formatted
+
+      - run: mix compile --warnings-as-errors
+
+      - run: mix test
+
+      - if: matrix.lint
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: plt-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
+          restore-keys: plt-${{ runner.os }}-${{ matrix.elixir }}-${{ matrix.otp }}-
+
+      - if: matrix.lint
+        run: MIX_ENV=test mix dialyzer --format github
+
+      - name: Build the Lambda package through Mayfly.Release
+        run: |
+          MIX_ENV=test mix release lambda --overwrite
+          test -s _build/test/rel/lambda/lambda.zip
+          test -x _build/test/rel/lambda/bootstrap
+
+      - name: Run the built bootstrap against the emulator (end-to-end)
+        run: |
+          MIX_ENV=test mix run --no-start -e '
+            {:ok, rt} = Mayfly.LocalRuntime.start_link(port: 9101)
+            port = Port.open({:spawn_executable, "_build/test/rel/lambda/bootstrap"},
+              [:binary, :exit_status, :stderr_to_stdout,
+               env: [{~c"AWS_LAMBDA_RUNTIME_API", ~c"127.0.0.1:9101"}, {~c"_HANDLER", ~c"Mayfly.Test.Handlers.Faulty"}]])
+            {:ok, %{body: ~s({"ci":true})}} = Mayfly.LocalRuntime.invoke(rt, %{"ci" => true}, timeout: 20_000)
+            {:error, %{"errorType" => "ArgumentError"}} = Mayfly.LocalRuntime.invoke(rt, %{"mode" => "raise"})
+            IO.puts("e2e ok")
+            Port.close(port)
+          '
+
+      - if: matrix.lint
+        run: mix docs 2>&1 | tee docs.log && ! grep -i warning docs.log

@@ -1,360 +1,191 @@
-# Deployment Guide
+# Deployment
 
-This guide covers advanced deployment scenarios and best practices for Mayfly Lambda functions.
+## Choosing how ERTS gets to Lambda
 
-## Build Options
+| | ERTS layer (`layer: true`) | Bundled ERTS |
+|---|---|---|
+| Zip size | 1–5 MB | 25–50 MB |
+| Build host | any OS, no Docker | Amazon Linux 2023 or `--docker` |
+| Build time | seconds | seconds + one-off 20–40 min image build |
+| NIF dependencies | need the layer *and* Linux-built NIFs (`--docker`) | works |
+| OTP version | must equal the layer's OTP version exactly (checked at start) | whatever you build with |
 
-### Local Build
+Recommendation: layer for everything without NIFs; bundled ERTS via Docker
+otherwise. Public layer ARNs and the naming scheme are in [layers.md](layers.md).
 
-Build on your local machine (same architecture as Lambda):
-
-```bash
-mix lambda.build --zip
-```
-
-### Docker Build
-
-Build using Docker for cross-platform compatibility:
-
-```bash
-mix lambda.build --docker --zip
-```
-
-This ensures your build matches the Lambda execution environment exactly.
-
-### Custom Output Directory
-
-Specify where to save the build artifacts:
-
-```bash
-mix lambda.build --zip --outdir ./deploy
-```
-
-## API Gateway Integration
-
-When integrating with API Gateway, structure your responses according to the proxy integration format:
+## Release configuration
 
 ```elixir
-defmodule MyApp.ApiHandler do
-  def handle(event) do
-    # Extract request details
-    path = event["path"]
-    method = event["httpMethod"]
-    body = event["body"]
-    
-    # Process request
-    response_body = process_request(method, path, body)
-    
-    # Return API Gateway proxy response
-    {:ok, %{
-      statusCode: 200,
-      headers: %{
-        "Content-Type" => "application/json",
-        "Access-Control-Allow-Origin" => "*"
-      },
-      body: Jason.encode!(response_body)
-    }}
-  end
-  
-  defp process_request("GET", "/users", _body) do
-    %{users: ["Alice", "Bob"]}
-  end
-  
-  defp process_request("POST", "/users", body) do
-    user = Jason.decode!(body)
-    %{created: user}
-  end
-  
-  defp process_request(_method, _path, _body) do
-    %{error: "Not found"}
-  end
-end
+releases: [
+  lambda: [
+    steps: [&Mayfly.Release.prepare/1, :assemble, &Mayfly.Release.bootstrap/1, &Mayfly.Release.zip/1],
+    mayfly: [handler: MyApp.Handler, layer: true],
+    # any Mix.Release option:
+    applications: [my_app: :permanent],
+    include_erts: false                     # implied by layer: true
+  ]
+]
 ```
 
-### Handling Different HTTP Methods
+`Mayfly.Release.prepare/1` sets `strip_beams: true`, `include_executables_for: [:unix]`
+and a `vm.args` with `+S 1:1 +sbwt none` unless you provide these yourself.
+Umbrella apps: define the release in the umbrella root `mix.exs` as usual.
+
+### Runtime configuration
+
+`config/runtime.exs` works normally. The generated `bootstrap` sets
+`RELEASE_TMP=/tmp` because Lambda's `/var/task` is read-only, so the release
+can write its generated `sys.config` there.
+
+### The generated bootstrap
+
+```bash
+#!/bin/bash
+set -eu
+export LAMBDA_TASK_ROOT="${LAMBDA_TASK_ROOT:-...}"
+export RELEASE_TMP="${RELEASE_TMP:-/tmp}"
+export RELEASE_DISTRIBUTION="${RELEASE_DISTRIBUTION:-none}"
+export _HANDLER="${_HANDLER:-MyApp.Handler}"
+export PATH="${MAYFLY_ERTS:-/opt/erlang}/bin:$PATH"     # layer builds only, plus an
+# ERTS presence/version check that fails fast with a readable message
+exec "$LAMBDA_TASK_ROOT/bin/lambda" eval "Mayfly.Boot.main()"
+```
+
+Lambda's **Handler** setting populates `_HANDLER` and therefore overrides the
+default baked in at build time.
+
+## Building with Docker (bundled ERTS)
+
+```bash
+mix lambda.build --docker --arch x86_64     # or arm64
+mix lambda.build --docker --release other --env staging --outdir ./deploy
+```
+
+The task uses `docker`, or `finch` if docker is not installed
+(`CONTAINER_CLI=...` overrides). It builds `lambda.Dockerfile` (yours if
+present, else Mayfly's) for the requested platform, runs `mix deps.get && mix release` inside the container
+with a separate `MIX_BUILD_PATH`, and copies `lambda.zip` out. `path:`
+dependencies outside the project are mounted read-only into the container.
+Add system packages for NIFs by copying Mayfly's Dockerfile into your project
+and extending the `dnf install` line.
+
+## HTTP events (Function URLs, API Gateway)
+
+Function URLs and API Gateway do not pass your JSON body as the event; they
+wrap it in an HTTP event (`"version": "2.0"`, `"rawPath"`, `"headers"`,
+`"body"` as a string). Match on it explicitly:
 
 ```elixir
-def handle(%{"httpMethod" => "GET"} = event) do
-  handle_get(event)
-end
-
-def handle(%{"httpMethod" => "POST"} = event) do
-  handle_post(event)
-end
-
-def handle(%{"httpMethod" => "PUT"} = event) do
-  handle_put(event)
-end
-
-def handle(%{"httpMethod" => "DELETE"} = event) do
-  handle_delete(event)
-end
-```
-
-## Error Handling
-
-### Returning Errors
-
-Return errors using the standard tuple format:
-
-```elixir
-def handle(event) do
-  case validate_input(event) do
-    :ok -> 
-      {:ok, process(event)}
-    
-    {:error, message} -> 
-      {:error, message}
+def handle(%{"requestContext" => %{"http" => %{"method" => m, "path" => p}}, "body" => body}, ctx, state) do
+  with {:ok, json} <- JSON.decode(body || "{}") do
+    route(m, p, json, ctx, state)
+  else
+    _ -> {:ok, %{statusCode: 400, body: "invalid JSON"}}
   end
 end
 ```
 
-Mayfly will automatically format errors according to Lambda's error response format:
+Test locally with `mix lambda.invoke MyApp.Handler '{"x":1}' --http --method POST --path /items`.
 
-```json
-{
-  "errorType": "RuntimeError",
-  "errorMessage": "Invalid input",
-  "stackTrace": "..."
+## Infrastructure as code
+
+### AWS SAM
+
+```yaml
+Resources:
+  Hello:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: provided.al2023
+      Architectures: [arm64]
+      Handler: MyApp.Handler
+      CodeUri: _build/prod/rel/lambda/lambda.zip
+      Layers:
+        - arn:aws:lambda:eu-central-1:ACCOUNT:layer:mayfly-erlang-27-3-4-arm64:1
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: RESPONSE_STREAM      # only for streaming handlers
+```
+
+### Terraform
+
+```hcl
+resource "aws_lambda_function" "hello" {
+  function_name = "hello"
+  runtime       = "provided.al2023"
+  architectures = ["arm64"]
+  handler       = "MyApp.Handler"
+  filename      = "${path.module}/_build/prod/rel/lambda/lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/_build/prod/rel/lambda/lambda.zip")
+  layers        = [var.mayfly_layer_arn]
+  role          = aws_iam_role.lambda.arn
+  timeout       = 30
+  memory_size   = 512
+
+  logging_config {
+    log_format = "JSON"
+  }
 }
 ```
 
-### Raising Exceptions
+### CDK (TypeScript)
 
-You can also raise exceptions, which Mayfly will catch and format:
-
-```elixir
-def handle(event) do
-  unless Map.has_key?(event, "required_field") do
-    raise "Missing required field"
-  end
-  
-  {:ok, process(event)}
-end
+```ts
+new lambda.Function(this, "Hello", {
+  runtime: lambda.Runtime.PROVIDED_AL2023,
+  architecture: lambda.Architecture.ARM_64,
+  handler: "MyApp.Handler",
+  code: lambda.Code.fromAsset("_build/prod/rel/lambda/lambda.zip"),
+  layers: [lambda.LayerVersion.fromLayerVersionArn(this, "Erlang", mayflyLayerArn)],
+  loggingFormat: lambda.LoggingFormat.JSON,
+});
 ```
 
-### Custom Error Types
-
-Define custom error structs for better error handling:
-
-```elixir
-defmodule MyApp.ValidationError do
-  defexception [:message, :field]
-end
-
-def handle(event) do
-  case validate(event) do
-    :ok -> 
-      {:ok, process(event)}
-    
-    {:error, field} -> 
-      raise MyApp.ValidationError, 
-        message: "Validation failed", 
-        field: field
-  end
-end
-```
-
-## Event Sources
-
-### S3 Events
-
-```elixir
-defmodule MyApp.S3Handler do
-  def handle(%{"Records" => records}) do
-    results = Enum.map(records, fn record ->
-      bucket = get_in(record, ["s3", "bucket", "name"])
-      key = get_in(record, ["s3", "object", "key"])
-      
-      process_s3_object(bucket, key)
-    end)
-    
-    {:ok, %{processed: length(results)}}
-  end
-end
-```
-
-### EventBridge Events
-
-```elixir
-defmodule MyApp.EventBridgeHandler do
-  def handle(%{"detail-type" => detail_type, "detail" => detail}) do
-    case detail_type do
-      "Order Placed" -> 
-        process_order(detail)
-      
-      "User Registered" -> 
-        process_registration(detail)
-      
-      _ -> 
-        {:ok, %{status: "ignored"}}
-    end
-  end
-end
-```
-
-### SQS Events
-
-```elixir
-defmodule MyApp.SqsHandler do
-  def handle(%{"Records" => records}) do
-    results = Enum.map(records, fn record ->
-      body = record["body"] |> Jason.decode!()
-      process_message(body)
-    end)
-    
-    {:ok, %{
-      batchItemFailures: []  # Return failed message IDs for retry
-    }}
-  end
-end
-```
-
-## Performance Optimization
-
-### Memory Configuration
-
-Start with 512MB and adjust based on your function's needs:
-
-```bash
-aws lambda update-function-configuration \
-  --function-name my-function \
-  --memory-size 1024
-```
-
-More memory also means more CPU power.
-
-### Timeout Configuration
-
-Set appropriate timeouts (default is 3 seconds):
-
-```bash
-aws lambda update-function-configuration \
-  --function-name my-function \
-  --timeout 30
-```
-
-### Cold Start Optimization
-
-- Keep dependencies minimal
-- Use provisioned concurrency for critical functions
-- Consider Lambda SnapStart (when available for custom runtimes)
-
-## Environment Variables
-
-Set environment variables for configuration:
-
-```bash
-aws lambda update-function-configuration \
-  --function-name my-function \
-  --environment Variables="{
-    _HANDLER=Elixir.MyApp.Handler.handle,
-    DATABASE_URL=postgres://...,
-    API_KEY=secret123
-  }"
-```
-
-Access in your code:
-
-```elixir
-def handle(event) do
-  db_url = System.get_env("DATABASE_URL")
-  api_key = System.get_env("API_KEY")
-  
-  # Use configuration
-  {:ok, process(event, db_url, api_key)}
-end
-```
-
-## Monitoring and Logging
-
-### Structured Logging
-
-Use Logger for structured logging:
-
-```elixir
-require Logger
-
-def handle(event) do
-  Logger.info("Processing event", event_type: event["type"])
-  
-  result = process(event)
-  
-  Logger.info("Event processed successfully", 
-    event_type: event["type"],
-    duration_ms: 123
-  )
-  
-  {:ok, result}
-end
-```
-
-Logs appear in CloudWatch Logs automatically.
-
-### Metrics
-
-Track custom metrics using CloudWatch:
-
-```elixir
-def handle(event) do
-  start_time = System.monotonic_time(:millisecond)
-  
-  result = process(event)
-  
-  duration = System.monotonic_time(:millisecond) - start_time
-  Logger.info("MONITORING|#{duration}|milliseconds|ProcessingTime")
-  
-  {:ok, result}
-end
-```
-
-## CI/CD Integration
-
-### GitHub Actions Example
+## CI
 
 ```yaml
-name: Deploy Lambda
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - uses: erlef/setup-beam@v1
-        with:
-          elixir-version: '1.15'
-          otp-version: '26'
-      
-      - name: Install dependencies
-        run: mix deps.get
-      
-      - name: Build Lambda package
-        run: mix lambda.build --docker --zip
-      
-      - name: Deploy to AWS
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        run: |
-          aws lambda update-function-code \
-            --function-name my-function \
-            --zip-file fileb://lambda.zip
+- uses: erlef/setup-beam@v1
+  with: { elixir-version: "1.18", otp-version: "27" }
+- run: mix deps.get
+- run: MIX_ENV=prod mix release lambda             # layer: true → no Docker needed
+- run: aws lambda update-function-code --function-name hello \
+         --zip-file fileb://_build/prod/rel/lambda/lambda.zip
 ```
 
-## Best Practices
+Pin the OTP major in CI to the layer's (27 here). If you bundle ERTS, replace
+the release step with `mix lambda.build --docker --arch arm64`.
 
-1. **Keep handlers simple** - Move business logic to separate modules
-2. **Use pattern matching** - Handle different event types cleanly
-3. **Return early** - Validate input and return errors quickly
-4. **Log appropriately** - Use structured logging for better observability
-5. **Test locally** - Write unit tests for your handler logic
-6. **Monitor performance** - Track cold starts and execution times
-7. **Handle errors gracefully** - Always return proper error responses
-8. **Use environment variables** - Keep configuration out of code
-9. **Version your functions** - Use Lambda versions and aliases
-10. **Set appropriate timeouts** - Don't use default 3s for long-running tasks
+## Lambda Managed Instances
+
+Nothing changes in the package. Create a capacity provider, then create the
+function with `--capacity-provider-config` (memory ≥ 2048 MB, invoked by
+published version) and Mayfly reads `AWS_LAMBDA_MAX_CONCURRENCY` and starts
+that many pollers:
+
+```bash
+aws lambda create-capacity-provider --capacity-provider-name mayfly \
+  --vpc-config SubnetIds=subnet-…,SecurityGroupIds=sg-… \
+  --permissions-config CapacityProviderOperatorRoleArn=arn:aws:iam::ACCOUNT:role/lmi-operator \
+  --instance-requirements '{"Architectures":["arm64"],"AllowedInstanceTypes":["m7g.large"]}' \
+  --capacity-provider-scaling-config '{"MaxVCpuCount":16}'
+
+aws lambda create-function … --memory-size 2048 \
+  --capacity-provider-config '{"LambdaManagedInstancesCapacityProviderConfig":{"CapacityProviderArn":"arn:…:capacity-provider:mayfly","PerExecutionEnvironmentMaxConcurrency":8,"ExecutionEnvironmentMemoryGiBPerVCpu":2}}'
+aws lambda publish-version --function-name my-fn      # invoke my-fn:1
+```
+
+The operator role needs the `AWSLambdaManagedEC2ResourceOperator` policy.
+Mayfly's `bootstrap` keeps all vCPUs as schedulers in this mode. Your handler must
+be safe to run concurrently (it runs in separate processes; `init/1` state is
+shared read-only), and should watch `Mayfly.Context.remaining_time_ms/1`
+because Managed Instances do not terminate a handler at its deadline.
+
+## Memory and timeouts
+
+Start with 512 MB (more memory = more CPU). Cold start is dominated by BEAM
+boot (~150–300 ms on arm64 with a stripped release); keep `init/1` lean.
+Streaming functions are billed for the full duration even if the client
+disconnects.

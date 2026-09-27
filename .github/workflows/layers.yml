@@ -1,0 +1,116 @@
+# Builds and publishes the Mayfly ERTS layers.
+#
+# - Runs weekly (picks up new OTP patch releases automatically) and on demand.
+# - Builds each OTP version natively per architecture (no QEMU): ubuntu-24.04
+#   for x86_64, ubuntu-24.04-arm for arm64.
+# - Publishes to every region in the list under a pinned name and a major
+#   alias, idempotently (already-published versions are reused), then attaches
+#   ARNS.md / arns.json / checksums to the GitHub release "layers".
+#
+# Required repository configuration:
+#   secrets.LAYERS_ROLE_ARN   IAM role trusted by GitHub OIDC with
+#                             lambda:PublishLayerVersion, lambda:ListLayerVersions,
+#                             lambda:AddLayerVersionPermission
+#   vars.LAYERS_REGIONS       space separated regions (optional, see default)
+#   vars.LAYERS_OTP_MAJORS    e.g. "27 28" (optional)
+name: Layers
+
+on:
+  workflow_dispatch:
+    inputs:
+      otp_versions:
+        description: "OTP versions (space separated). Empty = latest patch of each configured major."
+        default: ""
+      public:
+        description: "Grant public lambda:GetLayerVersion"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  DEFAULT_REGIONS: >-
+    eu-central-1 eu-west-1 eu-west-2 eu-west-3 eu-north-1
+    us-east-1 us-east-2 us-west-1 us-west-2 ca-central-1 sa-east-1
+    ap-southeast-1 ap-southeast-2 ap-northeast-1 ap-northeast-2 ap-south-1
+
+jobs:
+  versions:
+    runs-on: ubuntu-24.04
+    outputs:
+      otps: ${{ steps.resolve.outputs.otps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.otp_versions }}" ]; then
+            list="${{ inputs.otp_versions }}"
+          else
+            list="$(layer/latest-otp.sh ${{ vars.LAYERS_OTP_MAJORS || '27 28' }} | tr '\n' ' ')"
+          fi
+          echo "otps=$(printf '%s' "$list" | jq -R -c 'split(" ") | map(select(. != ""))')" >> "$GITHUB_OUTPUT"
+          echo "Building OTP: $list"
+
+  build:
+    needs: versions
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: ${{ fromJson(needs.versions.outputs.otps) }}
+        arch: [x86_64, arm64]
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: layer/build.sh --otp "${{ matrix.otp }}" --arch "${{ matrix.arch }}"
+      - name: Smoke test the layer (crypto + ssl start on AL2023)
+        run: |
+          docker run --rm -v "$PWD/layer/dist:/dist:ro" amazonlinux:2023 sh -c '
+            dnf install -y -q unzip >/dev/null && unzip -q /dist/mayfly-erlang-${{ matrix.otp }}-${{ matrix.arch }}.zip -d /opt &&
+            /opt/erlang/bin/erl -noshell -eval "{ok,_}=application:ensure_all_started(ssl), io:format(\"ok ~s~n\",[erlang:system_info(otp_release)]), halt()."'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layer-${{ matrix.otp }}-${{ matrix.arch }}
+          path: |
+            layer/dist/*.zip
+            layer/dist/*.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [versions, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: layer-*
+          path: layer/dist
+          merge-multiple: true
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.LAYERS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish to all regions
+        run: |
+          args=(--skip-existing)
+          [ "${{ inputs.public }}" != "false" ] && args+=(--public)
+          for r in ${{ vars.LAYERS_REGIONS || env.DEFAULT_REGIONS }}; do args+=(--region "$r"); done
+          layer/publish.sh "${args[@]}"
+          { echo "## Mayfly ERTS layers"; echo; cat layer/dist/ARNS.md; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Attach to the 'layers' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view layers >/dev/null 2>&1 || gh release create layers --title "Mayfly ERTS layers" \
+            --notes "Public Lambda layers with Erlang/OTP for Mayfly. See ARNS.md. Rebuilt weekly for the latest OTP patch releases."
+          gh release upload layers --clobber layer/dist/ARNS.md layer/dist/arns.json layer/dist/*.sha256

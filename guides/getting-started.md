@@ -1,181 +1,126 @@
-# Getting Started with Mayfly
-
-This guide will walk you through creating your first Elixir Lambda function using Mayfly.
+# Getting Started
 
 ## Prerequisites
 
-- Elixir ~> 1.15 installed
-- Mix build tool
-- AWS Account with Lambda access
-- AWS CLI configured (optional, for deployment)
+- Elixir 1.18+ and OTP 27+
+- An AWS account and the AWS CLI (for deployment)
+- Docker only if you bundle ERTS instead of using the layer
 
-## Installation
-
-Add Mayfly to your project's dependencies in `mix.exs`:
+## 1. Add Mayfly and a release
 
 ```elixir
-def deps do
+# mix.exs
+def project do
   [
-    {:mayfly, github: "bmalum/mayfly"}
+    app: :hello,
+    version: "0.1.0",
+    elixir: "~> 1.18",
+    deps: [{:mayfly, "~> 1.0.0-rc"}],
+    releases: [
+      lambda: [
+        steps: [&Mayfly.Release.prepare/1, :assemble, &Mayfly.Release.bootstrap/1, &Mayfly.Release.zip/1],
+        mayfly: [handler: Hello.Handler, layer: true]
+      ]
+    ]
   ]
 end
 ```
 
-Then fetch the dependencies:
+`layer: true` means the zip will not contain ERTS; the Mayfly layer provides it.
+Leave it out to bundle ERTS (then build with `mix lambda.build --docker`).
 
-```bash
-mix deps.get
-```
-
-## Creating Your First Lambda Function
-
-### 1. Define Your Handler
-
-Create a new module with a handler function. The handler receives a map (the Lambda event) and returns `{:ok, result}` or `{:error, reason}`:
+## 2. Write the handler
 
 ```elixir
-defmodule MyApp.HelloHandler do
-  @moduledoc """
-  A simple Lambda function that greets the world.
-  """
+# lib/hello/handler.ex
+defmodule Hello.Handler do
+  use Mayfly.Handler
 
-  def handle(event) do
+  @impl true
+  def handle(event, %Mayfly.Context{} = ctx, _state) do
     name = Map.get(event, "name", "World")
-    
-    {:ok, %{
-      message: "Hello, #{name}!",
-      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
-    }}
+
+    {:ok,
+     %{
+       message: "Hello, #{name}!",
+       request_id: ctx.request_id,
+       remaining_ms: Mayfly.Context.remaining_time_ms(ctx)
+     }}
   end
 end
 ```
 
-### 2. Build Your Lambda Package
-
-Use the provided Mix task to build a deployment package:
+## 3. Try it locally
 
 ```bash
-mix lambda.build --zip
+mix lambda.invoke Hello.Handler '{"name":"Elixir"}'
+# %{"message" => "Hello, Elixir!", "remaining_ms" => 29998, "request_id" => "local-1-..."}
 ```
 
-This will:
-- Build a release in the `lambda` environment
-- Generate a `bootstrap` script
-- Create a `lambda.zip` file ready for deployment
+This runs the real runtime against an emulated Runtime API, so errors, the
+context and JSON encoding behave exactly as in Lambda.
 
-### 3. Deploy to AWS Lambda
-
-#### Using AWS Console
-
-1. Go to the [AWS Lambda Console](https://console.aws.amazon.com/lambda)
-2. Click "Create function"
-3. Choose "Author from scratch"
-4. Configure:
-   - **Function name**: `my-elixir-function`
-   - **Runtime**: Custom runtime on Amazon Linux 2023
-   - **Architecture**: x86_64 (or arm64 if you built with Docker)
-5. Click "Create function"
-6. In the "Code" section, click "Upload from" → ".zip file"
-7. Upload your `lambda.zip` file
-8. In "Runtime settings", click "Edit" and set:
-   - **Handler**: `Elixir.MyApp.HelloHandler.handle`
-9. Click "Save"
-
-#### Using AWS CLI
+## 4. Build
 
 ```bash
-# Create the function
+MIX_ENV=prod mix release lambda
+# * creating _build/prod/rel/lambda/bootstrap
+# * creating _build/prod/rel/lambda/lambda.zip (2140 KiB)
+```
+
+## 5. Deploy
+
+```bash
+ARCH=arm64                                  # or x86_64 – must match the layer
+LAYER=arn:aws:lambda:eu-central-1:ACCOUNT:layer:mayfly-erlang-27-3-4-$ARCH:1
+
 aws lambda create-function \
-  --function-name my-elixir-function \
+  --function-name hello \
   --runtime provided.al2023 \
-  --role arn:aws:iam::YOUR_ACCOUNT_ID:role/lambda-execution-role \
-  --handler Elixir.MyApp.HelloHandler.handle \
-  --zip-file fileb://lambda.zip \
-  --timeout 30 \
-  --memory-size 512
+  --architectures $ARCH \
+  --handler Hello.Handler \
+  --layers $LAYER \
+  --zip-file fileb://_build/prod/rel/lambda/lambda.zip \
+  --role arn:aws:iam::ACCOUNT:role/lambda-execution-role \
+  --timeout 30 --memory-size 512
 
-# Update existing function
-aws lambda update-function-code \
-  --function-name my-elixir-function \
-  --zip-file fileb://lambda.zip
+aws lambda invoke --function-name hello \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"name":"Lambda"}' /dev/stdout
 ```
 
-### 4. Test Your Function
+Your local OTP must be the layer's exact version (the `bootstrap` checks it);
+`mise use erlang@27.3.4.18 elixir@1.18.4-otp-27` does it. Public layer ARNs are
+listed in [layers.md](layers.md); to publish your own run
+`layer/build.sh && layer/publish.sh --region eu-central-1`. Or skip the layer
+and bundle ERTS with `mix lambda.build --docker --arch $ARCH` (docker or finch).
 
-In the AWS Lambda Console:
+## 6. Iterate
 
-1. Click the "Test" tab
-2. Create a new test event:
-```json
-{
-  "name": "Elixir Developer"
-}
-```
-3. Click "Test"
-
-You should see a response like:
-```json
-{
-  "message": "Hello, Elixir Developer!",
-  "timestamp": "2025-11-21T10:30:00Z"
-}
+```bash
+MIX_ENV=prod mix release lambda --overwrite
+aws lambda update-function-code --function-name hello \
+  --zip-file fileb://_build/prod/rel/lambda/lambda.zip
 ```
 
-## Handler Patterns
-
-### Basic Handler
+## Handler patterns
 
 ```elixir
-def handle(event) do
-  {:ok, %{result: "success"}}
+# state from init/1
+def init(_opts), do: {:ok, %{client: MyApp.Client.new()}}
+def handle(event, _ctx, %{client: client}), do: {:ok, MyApp.Client.call(client, event)}
+
+# pattern matching on the event
+def handle(%{"action" => "create"} = e, _ctx, _s), do: {:ok, create(e)}
+def handle(%{"action" => "delete"} = e, _ctx, _s), do: {:ok, delete(e)}
+def handle(_e, _ctx, _s), do: {:error, %{errorType: "BadRequest", errorMessage: "unknown action"}}
+
+# Function URL / API Gateway: the payload arrives as event["body"] (a string)
+def handle(%{"rawPath" => path, "body" => body}, _ctx, _s) do
+  {:ok, %{statusCode: 200, headers: %{"content-type" => "application/json"},
+          body: JSON.encode!(%{path: path, received: JSON.decode!(body || "{}")})}}
 end
+# try it: mix lambda.invoke Hello.Handler '{"a":1}' --http --path /items
 ```
 
-### With Error Handling
-
-```elixir
-def handle(event) do
-  case validate(event) do
-    :ok -> 
-      result = process(event)
-      {:ok, result}
-    
-    {:error, reason} -> 
-      {:error, reason}
-  end
-end
-```
-
-### With Pattern Matching
-
-```elixir
-def handle(%{"action" => "create"} = event) do
-  # Handle create action
-  {:ok, %{status: "created"}}
-end
-
-def handle(%{"action" => "delete"} = event) do
-  # Handle delete action
-  {:ok, %{status: "deleted"}}
-end
-
-def handle(_event) do
-  {:error, "Unknown action"}
-end
-```
-
-## Environment Variables
-
-Configure your handler using the `_HANDLER` environment variable in Lambda:
-
-```
-_HANDLER=Elixir.MyApp.HelloHandler.handle
-```
-
-The format is: `Elixir.ModuleName.function_name`
-
-## Next Steps
-
-- Learn about [Deployment Strategies](deployment.html)
-- Explore [API Gateway Integration](deployment.html#api-gateway-integration)
-- See [Error Handling Best Practices](deployment.html#error-handling)
+Next: [Deployment](deployment.md), [Streaming](streaming.md), [Observability](observability.md).

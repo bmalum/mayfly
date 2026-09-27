@@ -1,0 +1,43 @@
+# Publishes the package to Hex.pm when a version tag is pushed.
+#
+#   git tag v1.0.0 && git push --tags
+#
+# Requires the repository secret HEX_API_KEY (mix hex.user key generate
+# --permission api:write). The tag must equal "v" + @version in mix.exs.
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  hex:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "27.3"
+      - run: mix deps.get
+      - name: Check tag matches mix.exs version
+        run: |
+          v="$(mix run --no-start -e 'IO.puts Mix.Project.config()[:version]')"
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != v$v" >&2; exit 1; }
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+      - run: mix docs
+      - run: mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="$(awk -v tag="${GITHUB_REF_NAME#v}" '
+            $0 ~ "^## \\[" tag "\\]" {p=1; next} /^## \[/ {p=0} p' CHANGELOG.md)"
+          gh release create "${GITHUB_REF_NAME}" --title "Mayfly ${GITHUB_REF_NAME}" --notes "${notes:-See CHANGELOG.md}" \
+            $( [[ "${GITHUB_REF_NAME}" == *-* ]] && echo --prerelease )

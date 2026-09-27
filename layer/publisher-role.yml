@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  IAM role assumed by the mayfly "Layers" GitHub Actions workflow through OIDC
+  to publish and share Lambda layers. Deploy once in the account that owns the
+  public layers:
+
+    aws cloudformation deploy --stack-name mayfly-layers-publisher \
+      --template-file layer/publisher-role.yml --capabilities CAPABILITY_NAMED_IAM \
+      --parameter-overrides GitHubRepo=bmalum/mayfly
+
+  Then set the output RoleArn as the repository secret LAYERS_ROLE_ARN.
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Default: bmalum/mayfly
+    Description: owner/repo allowed to assume the role
+  GitHubRef:
+    Type: String
+    Default: refs/heads/main
+    Description: git ref allowed to publish (branch or tag pattern)
+  LayerNamePrefix:
+    Type: String
+    Default: mayfly-erlang
+  CreateOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: set to "false" if token.actions.githubusercontent.com already exists in this account
+
+Conditions:
+  CreateProvider: !Equals [!Ref CreateOidcProvider, "true"]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+      ThumbprintList: [ffffffffffffffffffffffffffffffffffffffff]
+
+  PublisherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: mayfly-layers-publisher
+      Description: Publishes Mayfly ERTS layers from GitHub Actions
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateProvider
+                - !Ref GitHubOidcProvider
+                - !Sub arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:${GitHubRef}
+      Policies:
+        - PolicyName: publish-layers
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:PublishLayerVersion
+                  - lambda:ListLayerVersions
+                  - lambda:GetLayerVersion
+                  - lambda:AddLayerVersionPermission
+                  - lambda:GetLayerVersionPolicy
+                Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:${LayerNamePrefix}-*
+
+Outputs:
+  RoleArn:
+    Value: !GetAtt PublisherRole.Arn
+    Description: set as GitHub secret LAYERS_ROLE_ARN

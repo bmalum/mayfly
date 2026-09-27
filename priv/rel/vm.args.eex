@@ -1,0 +1,17 @@
+## Mayfly defaults for AWS Lambda. Copy this file into your own
+## rel/ directory and set `rel_templates_path` to customise.
+
+## No busy waiting: Lambda bills for wall time, spinning schedulers only burn CPU.
++sbwt none
++sbwtdcpu none
++sbwtdio none
+
+## No shell in Lambda.
+-noinput
+
+## Scheduler count: the generated bootstrap appends "+S 1:1" via
+## ELIXIR_ERL_OPTIONS on standard Lambda (one vCPU below ~1.8 GB, one
+## invocation at a time). On Lambda Managed Instances the environment has
+## several vCPUs and runs AWS_LAMBDA_MAX_CONCURRENCY invocations in parallel,
+## so the VM's default (one scheduler per online CPU) is used there.
++SDio 2

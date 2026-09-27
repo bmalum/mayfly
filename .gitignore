@@ -31,11 +31,14 @@ erl_crash.dump
 # Generated Lambda zips
 lambda.zip
 
-# Generated bootstrap script
-bootstrap
-
 # Ignore package tarball (built via "mix hex.build").
-aws_lambda-*.tar
+mayfly-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Layer artefacts
+/layer/dist/
+
+# Dialyzer PLTs
+/priv/plts/

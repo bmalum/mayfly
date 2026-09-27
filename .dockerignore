@@ -1,0 +1,4 @@
+# The build image copies nothing from the context; the project is bind-mounted
+# at run time. Keep the context tiny.
+*
+!lambda.Dockerfile
