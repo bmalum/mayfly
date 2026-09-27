@@ -65,9 +65,32 @@ defmodule Mayfly.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://elixir-aws-lambda.dev/docs"},
       files:
-        ~w(lib priv guides layer lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md LICENSE)
+        ~w(lib priv guides layer skills lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
+
+  # SEO for the published docs site (elixir-aws-lambda.dev/docs).
+  defp docs_head(:html) do
+    """
+    <meta name="description" content="Mayfly documentation: run Elixir on AWS Lambda with a lightweight custom runtime. Handler behaviour, mix release build, Erlang layers, response streaming, Managed Instances, observability.">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#5b21b6">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mayfly – Elixir on AWS Lambda">
+    <meta property="og:title" content="Mayfly documentation – Elixir AWS Lambda runtime">
+    <meta property="og:description" content="Run Elixir on AWS Lambda: handler behaviour, mix release build, Erlang layers, response streaming, Managed Instances.">
+    <meta property="og:image" content="https://elixir-aws-lambda.dev/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" type="image/png" href="https://elixir-aws-lambda.dev/elixir-drop-only.png">
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@type":"TechArticle","isPartOf":{"@type":"WebSite","name":"Mayfly","url":"https://elixir-aws-lambda.dev/"},
+     "about":{"@type":"SoftwareSourceCode","name":"Mayfly","codeRepository":"https://github.com/bmalum/mayfly","programmingLanguage":"Elixir","runtimePlatform":"AWS Lambda provided.al2023"},
+     "author":{"@type":"Organization","name":"Karrer","url":"https://karrer.solutions"}}
+    </script>
+    """
+  end
+
+  defp docs_head(_), do: ""
 
   defp docs do
     [
@@ -110,7 +133,8 @@ defmodule Mayfly.MixProject do
         ]
       ],
       assets: %{"mayfly.png" => "assets/mayfly.png"},
-      canonical: "https://elixir-aws-lambda.dev/docs"
+      canonical: "https://elixir-aws-lambda.dev/docs",
+      before_closing_head_tag: &docs_head/1
     ]
   end
 end

@@ -1,7 +1,7 @@
 # 🪰 Mayfly
 
 <div align="center">
-  <img width="300" src="./mayfly.png" alt="Mayfly Logo"/>
+  <img width="300" src="https://raw.githubusercontent.com/bmalum/mayfly/main/mayfly.png" alt="Mayfly – Elixir on AWS Lambda logo"/>
   <h3>A lightweight AWS Lambda Custom Runtime for Elixir</h3>
 
   ![Version](https://img.shields.io/badge/version-1.0.0--rc.1-blue)
@@ -196,6 +196,17 @@ Mayfly starts `AWS_LAMBDA_MAX_CONCURRENCY` pollers, each an isolated process, so
 ## Documentation
 
 Full documentation: **[elixir-aws-lambda.dev/docs](https://elixir-aws-lambda.dev/docs/)**
+
+### For coding agents
+
+`skills/mayfly-elixir-lambda/` is an [Agent Skill](https://agentskills.io) (Kiro, Claude Code, Cursor, Codex, …) that teaches an agent the handler behaviour, the release build, local testing and the failure modes:
+
+```bash
+# project-local install for Kiro or Claude Code
+cp -r deps/mayfly/skills/mayfly-elixir-lambda .kiro/skills/      # or .claude/skills/
+```
+
+The docs are also published as Markdown with an index at [elixir-aws-lambda.dev/docs/llms.txt](https://elixir-aws-lambda.dev/docs/llms.txt).
 
 - [Getting started](guides/getting-started.md)
 - [Deployment](guides/deployment.md) – layer vs bundled ERTS, Docker, IaC snippets

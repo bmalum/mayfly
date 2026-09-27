@@ -35,6 +35,8 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   on Managed Instances (`AWS_LAMBDA_MAX_CONCURRENCY > 1`) the VM sizes
   schedulers to the vCPUs. Managed Instances verified on real hardware.
 - Dialyzer runs in CI; a `Publish` workflow releases to Hex.pm on `v*` tags.
+- `skills/mayfly-elixir-lambda`: an Agent Skill for coding agents, shipped in
+  the Hex package.
 - `Mayfly.Response`: custom content types, response streaming with chunked
   transfer encoding, error trailers and the Function URL HTTP prelude
   (`Mayfly.Response.http/2`).
