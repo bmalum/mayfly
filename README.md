@@ -232,7 +232,7 @@ The docs are also published as Markdown with an index at [elixir-aws-lambda.dev/
 
 ## Contributing
 
-Run `mix format`, `mix compile --warnings-as-errors` and `mix test` before opening a PR; CI enforces all three plus a release build.
+Run `mix format`, `mix compile --warnings-as-errors` and `mix test` before opening a PR; CI enforces all three plus a release build. `AGENTS.md` describes the architecture, invariants and release/layer procedures for contributors and coding agents; `skills/mayfly-maintainer/` is the operational runbook.
 
 ## License
 
