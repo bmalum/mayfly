@@ -13,6 +13,9 @@
 #                             lambda:AddLayerVersionPermission
 #   vars.LAYERS_REGIONS       space separated regions (optional, see default)
 #   vars.LAYERS_OTP_MAJORS    e.g. "27 28" (optional)
+#   secrets.WEBSITE_DEPLOY_KEY  SSH private key with write access to the
+#                             mayfly_website repo (optional; enables the
+#                             catalog update at elixir-aws-lambda.dev/layers)
 name: Layers
 
 on:
@@ -114,3 +117,32 @@ jobs:
           gh release view layers >/dev/null 2>&1 || gh release create layers --title "Mayfly ERTS layers" \
             --notes "Public Lambda layers with Erlang/OTP for Mayfly. See ARNS.md. Rebuilt weekly for the latest OTP patch releases."
           gh release upload layers --clobber layer/dist/ARNS.md layer/dist/arns.json layer/dist/*.sha256
+
+      - name: Update the layer catalog on elixir-aws-lambda.dev
+        if: env.HAVE_KEY == 'true'
+        env:
+          HAVE_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY != '' }}
+          DEPLOY_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/website_key && chmod 600 ~/.ssh/website_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/website_key -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:bmalum/mayfly_website.git /tmp/site
+          mkdir -p /tmp/site/data
+          # Merge: keep previously published versions, override/add the ones from this run.
+          python3 - <<'PY'
+          import json, pathlib
+          site = pathlib.Path("/tmp/site/data/layers.json")
+          old = json.loads(site.read_text()) if site.exists() else []
+          new = json.load(open("layer/dist/arns.json"))
+          key = lambda e: (e["region"], e["otp"], e["arch"])
+          merged = {key(e): e for e in old}
+          merged.update({key(e): e for e in new})
+          site.write_text(json.dumps(sorted(merged.values(), key=key), indent=2) + "\n")
+          pathlib.Path("/tmp/site/data/layers.updated").write_text(__import__("datetime").datetime.utcnow().strftime("%Y-%m-%d") + "\n")
+          print(len(merged), "layer entries")
+          PY
+          cd /tmp/site
+          git config user.name "mayfly-layers-bot" && git config user.email "layers@elixir-aws-lambda.dev"
+          git add data && git diff --cached --quiet && { echo "catalog unchanged"; exit 0; }
+          git commit -m "layers: update catalog ($(date -u +%F))" && git push

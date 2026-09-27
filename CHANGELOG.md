@@ -28,7 +28,10 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   mounts external `path:` dependencies into the container.
 - `mix lambda.doctor` checks the release configuration, resolves the handler
   and runs its `init/1`, and compares the local OTP with a layer's
-  (`--layer ARN`).
+  (`--layer ARN`); without `--layer` it looks the matching public layer up in
+  the catalog at elixir-aws-lambda.dev/layers for `--arch`/`--region`.
+- The Layers workflow publishes the ARN index to the website catalog
+  (`/layers/` page and static JSON resolver).
 - `Mayfly.Response.stream/2` accepts `send_timeout:` to bound a stalled
   streaming write (default 30 s).
 - `bootstrap` uses a single scheduler (`+S 1:1`) only on standard Lambda;

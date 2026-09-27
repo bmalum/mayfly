@@ -20,7 +20,7 @@ defmodule Mayfly.MixProject do
       docs: docs(),
       releases: releases(),
       dialyzer: [
-        plt_add_apps: [:mix, :ex_unit, :telemetry],
+        plt_add_apps: [:mix, :ex_unit, :telemetry, :inets, :ssl, :public_key],
         plt_local_path: "priv/plts",
         plt_core_path: "priv/plts"
       ]

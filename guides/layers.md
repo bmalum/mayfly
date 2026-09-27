@@ -45,10 +45,20 @@ in these regions:
 us-west-1 us-west-2 ca-central-1 sa-east-1 ap-southeast-1 ap-southeast-2
 ap-northeast-1 ap-northeast-2 ap-south-1`
 
-The current ARN table is `ARNS.md` on the
-[layers release](https://github.com/bmalum/mayfly/releases/tag/layers)
-(machine-readable: `arns.json`). Until the first public run has happened,
-publish to your own account as described below.
+Browse them at **[elixir-aws-lambda.dev/layers](https://elixir-aws-lambda.dev/layers/)**
+(every OTP version × region × architecture, with copy buttons). The same data
+is available as static JSON:
+
+```
+GET https://elixir-aws-lambda.dev/layers/27/arm64/eu-central-1.json          # newest 27.x
+GET https://elixir-aws-lambda.dev/layers/27.3.4.18/arm64/eu-central-1.json   # pinned
+GET https://elixir-aws-lambda.dev/layers/index.json                          # everything
+```
+
+`mix lambda.doctor` queries the resolver for your local OTP, `--arch` and
+`--region` and prints the matching ARN. Checksums (`.sha256`) and the raw
+`ARNS.md`/`arns.json` are attached to the
+[layers release](https://github.com/bmalum/mayfly/releases/tag/layers).
 
 Missing a region or OTP version? Open an issue, or run the workflow on your
 fork with your own account.
@@ -78,6 +88,9 @@ workflow uses native runners for both.
    (`secrets.LAYERS_ROLE_ARN`, template in `layer/publisher-role.yml`),
    publishes to all regions (`vars.LAYERS_REGIONS`), grants public access and
    attaches `ARNS.md`, `arns.json` and checksums to the `layers` release.
+4. With `secrets.WEBSITE_DEPLOY_KEY` set, it merges `arns.json` into the
+   website repository's `data/layers.json`; Cloudflare Pages rebuilds and the
+   catalog and resolver at `/layers/` reflect the new versions within minutes.
 
 Set it up once in the publishing account:
 

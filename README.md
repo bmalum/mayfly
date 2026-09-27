@@ -149,7 +149,7 @@ See [guides/streaming.md](guides/streaming.md).
 
 Two ways to get an ERTS that matches Lambda:
 
-**1. ERTS layer (recommended).** `mayfly: [layer: true]` builds the release with `include_erts: false`; the zip has only BEAM files (a few MB) and builds anywhere. Attach a `mayfly-erlang-<otp>-<arch>` layer to the function: public layers for the latest patch of each supported OTP major are published weekly to 16 regions (ARNs in [`ARNS.md` on the layers release](https://github.com/bmalum/mayfly/releases/tag/layers)), or publish to your own account with `layer/build.sh` and `layer/publish.sh`. Your build toolchain must use the layer's exact OTP version (`mise use erlang@27.3.4.18`); `bootstrap` verifies this at start. See [guides/layers.md](guides/layers.md).
+**1. ERTS layer (recommended).** `mayfly: [layer: true]` builds the release with `include_erts: false`; the zip has only BEAM files (a few MB) and builds anywhere. Attach a `mayfly-erlang-<otp>-<arch>` layer to the function: public layers for the latest patch of each supported OTP major are published weekly to 16 regions (catalog and JSON resolver at [elixir-aws-lambda.dev/layers](https://elixir-aws-lambda.dev/layers/)), or publish to your own account with `layer/build.sh` and `layer/publish.sh`. Your build toolchain must use the layer's exact OTP version (`mise use erlang@27.3.4.18`); `bootstrap` verifies this at start. See [guides/layers.md](guides/layers.md).
 
 **2. Bundled ERTS.** Leave `layer` off and build on Amazon Linux 2023 or in Docker:
 

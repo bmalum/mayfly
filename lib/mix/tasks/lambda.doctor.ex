@@ -8,12 +8,16 @@ defmodule Mix.Tasks.Lambda.Doctor do
       option exists;
     * the configured handler resolves (module implements `Mayfly.Handler`, or a
       legacy `Module.function` exists) and its `init/1` succeeds;
-    * for `layer: true` releases, the local ERTS version matches the layer you
-      intend to use (`--layer ARN` queries Lambda for the layer's OTP version;
-      without it the expected version is printed for you to compare);
+    * for `layer: true` releases, the local OTP version matches the layer you
+      intend to use: `--layer ARN` queries Lambda for that layer's OTP version;
+      without it the public layer catalog at elixir-aws-lambda.dev is consulted
+      for your OTP, `--arch` (default arm64) and `--region` (default
+      `AWS_REGION`/`AWS_DEFAULT_REGION` or eu-central-1) and the matching ARN
+      is printed;
     * the Elixir/OTP versions are supported.
 
       mix lambda.doctor
+      mix lambda.doctor --arch x86_64 --region us-east-1
       mix lambda.doctor --release lambda --layer arn:aws:lambda:eu-central-1:123:layer:mayfly-erlang-27-arm64:1
 
   Exit status is 1 when any check fails.
@@ -23,11 +27,15 @@ defmodule Mix.Tasks.Lambda.Doctor do
 
   @impl true
   def run(args) do
-    {opts, _, _} = OptionParser.parse(args, strict: [release: :string, layer: :string])
+    {opts, _, _} =
+      OptionParser.parse(args,
+        strict: [release: :string, layer: :string, arch: :string, region: :string]
+      )
+
     Mix.Task.run("app.start")
 
     results =
-      [check_versions(), check_release(opts[:release], opts[:layer])]
+      [check_versions(), check_release(opts[:release], opts)]
       |> List.flatten()
 
     Enum.each(results, &print/1)
@@ -58,7 +66,7 @@ defmodule Mix.Tasks.Lambda.Doctor do
     ]
   end
 
-  defp check_release(name, layer_arn) do
+  defp check_release(name, opts) do
     releases = Mix.Project.config()[:releases] || []
 
     case pick_release(releases, name) do
@@ -76,7 +84,7 @@ defmodule Mix.Tasks.Lambda.Doctor do
         [
           check_steps(rel_name, steps),
           check_handler(rel_name, mayfly[:handler]),
-          check_layer(rel_name, mayfly, layer_arn)
+          check_layer(rel_name, mayfly, opts)
         ]
     end
   end
@@ -132,10 +140,13 @@ defmodule Mix.Tasks.Lambda.Doctor do
     end
   end
 
-  defp check_layer(name, mayfly, layer_arn) do
+  @catalog "https://elixir-aws-lambda.dev/layers"
+
+  defp check_layer(name, mayfly, opts) do
     layer? = Keyword.get(mayfly, :layer, false)
     erts = :erlang.system_info(:version) |> List.to_string()
     otp = otp_version()
+    layer_arn = Keyword.get(opts, :layer)
 
     cond do
       not layer? ->
@@ -143,14 +154,85 @@ defmodule Mix.Tasks.Lambda.Doctor do
          "release #{name}: bundles ERTS #{erts} (build on Amazon Linux 2023 or with --docker)",
          nil}
 
-      layer_arn != nil ->
+      is_binary(layer_arn) ->
         compare_with_layer(name, layer_arn, otp, erts)
 
       true ->
-        {:warn, "release #{name}: layer build, local OTP #{otp} (ERTS #{erts})",
-         "attach a layer built from OTP #{otp} exactly (e.g. mayfly-erlang-#{String.replace(otp, ".", "-")}-<arch>); " <>
-           "pass --layer ARN to verify against a published layer"}
+        lookup_public_layer(
+          name,
+          otp,
+          Keyword.get(opts, :arch, "arm64"),
+          Keyword.get(opts, :region) || default_region()
+        )
     end
+  end
+
+  # Resolves the public layer for this exact OTP from the static catalog.
+  defp lookup_public_layer(name, otp, arch, region) do
+    case fetch_json("#{@catalog}/#{otp}/#{arch}/#{region}.json") do
+      {:ok, %{"arn" => arn}} ->
+        {:ok, "release #{name}: public layer for OTP #{otp} (#{arch}, #{region}): #{arn}", nil}
+
+      {:error, :not_found} ->
+        major = otp |> String.split(".") |> hd()
+
+        hint =
+          case fetch_json("#{@catalog}/#{major}/#{arch}/#{region}.json") do
+            {:ok, %{"otp" => avail}} ->
+              "no public layer for OTP #{otp}; the newest published #{major}.x is #{avail}. " <>
+                "Build with `mise use erlang@#{avail}`, or publish your own (layer/build.sh)"
+
+            _ ->
+              "no public layer for OTP #{major}.x in #{region}/#{arch}. " <>
+                "Publish your own with layer/build.sh + layer/publish.sh"
+          end
+
+        {:warn, "release #{name}: layer build, local OTP #{otp}", hint}
+
+      {:error, reason} ->
+        {:warn, "release #{name}: layer build, local OTP #{otp}",
+         "could not reach the layer catalog (#{inspect(reason)}); " <>
+           "attach a layer built from OTP #{otp} exactly, or pass --layer ARN"}
+    end
+  end
+
+  # :inets/:ssl are not Mayfly dependencies (the runtime uses :gen_tcp), so the
+  # calls go through apply/3 to keep the compiler quiet; this is a dev-time task.
+  defp fetch_json(url) do
+    # Mix prunes code paths to the project's applications; put the OTP apps
+    # this task needs back on the path before loading them.
+    for app <- [:asn1, :public_key, :ssl, :inets] do
+      Code.prepend_path(:filename.join(:code.lib_dir(), ~c"#{app}-#{otp_app_vsn(app)}/ebin"))
+      Application.load(app)
+      {:ok, _} = Application.ensure_all_started(app)
+    end
+
+    request = {String.to_charlist(url), [{~c"user-agent", ~c"mix lambda.doctor"}]}
+    cacerts = apply(:public_key, :cacerts_get, [])
+
+    http_opts = [
+      timeout: 5_000,
+      connect_timeout: 3_000,
+      ssl: [verify: :verify_peer, cacerts: cacerts]
+    ]
+
+    case apply(:httpc, :request, [:get, request, http_opts, [body_format: :binary]]) do
+      {:ok, {{_, 200, _}, _, body}} -> JSON.decode(body)
+      {:ok, {{_, 404, _}, _, _}} -> {:error, :not_found}
+      {:ok, {{_, status, _}, _, _}} -> {:error, {:http, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp otp_app_vsn(app) do
+    :code.lib_dir()
+    |> File.ls!()
+    |> Enum.find(&String.starts_with?(&1, "#{app}-"))
+    |> String.replace_prefix("#{app}-", "")
+  end
+
+  defp default_region do
+    System.get_env("AWS_REGION") || System.get_env("AWS_DEFAULT_REGION") || "eu-central-1"
   end
 
   defp compare_with_layer(name, arn, otp, erts) do
