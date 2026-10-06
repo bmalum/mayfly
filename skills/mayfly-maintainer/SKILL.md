@@ -50,9 +50,12 @@ gh run watch                                                     # ~25 min
 
 ### Add an OTP major
 ```bash
-gh variable set LAYERS_OTP_MAJORS --body "27 28 29"
+gh variable set LAYERS_OTP_MAJORS --body "27 28 29 30"
 gh workflow run layers.yml
 ```
+Check which Elixir versions have a precompiled build for the new major
+(`curl -sI https://builds.hex.pm/builds/elixir/v<elixir>-otp-<major>.zip`) and
+record the pairing in `guides/layers.md`. Currently published: 27, 28, 29.
 Then verify the new major on the playground (see "Deploy a test function").
 Update the README "Requirements" row and `guides/layers.md` if the supported
 range changes.

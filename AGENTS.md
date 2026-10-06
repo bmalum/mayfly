@@ -107,7 +107,7 @@ publish public layers from a sandbox account.
 
 - Workflow `.github/workflows/layers.yml`: weekly (Mon 04:17 UTC) + manual.
   `layer/latest-otp.sh` → newest patch per major in `vars.LAYERS_OTP_MAJORS`
-  (`27 28`) → native x86_64/arm64 builds → `ssl` smoke test → OIDC role
+  (`27 28 29`) → native x86_64/arm64 builds → `ssl` smoke test → OIDC role
   `mayfly-layers-publisher` (from `layer/publisher-role.yml`, stack
   `mayfly-layers-publisher`) → `layer/publish.sh --skip-existing --public` to
   `vars.LAYERS_REGIONS` (16 regions) → GitHub release `layers` (ARNS.md,

@@ -79,7 +79,7 @@ aws lambda create-function --function-name hello \
 | | Supported |
 |---|---|
 | Elixir | 1.18 or newer |
-| Erlang/OTP | 27 or newer; the layer and Docker image ship OTP 27.3.4 |
+| Erlang/OTP | 27, 28 or 29; public layers exist for the latest patch of each (OTP 29 needs Elixir ≥ 1.20) |
 | Lambda | `provided.al2023`, x86_64 or arm64; Lambda (default) and Managed Instances |
 
 Upgrading from 0.x? See [guides/migrating-from-0.x.md](guides/migrating-from-0.x.md).

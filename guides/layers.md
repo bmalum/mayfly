@@ -41,6 +41,16 @@ Public layers are published by the [Layers workflow](../.github/workflows/layers
 for the latest patch release of each supported OTP major, both architectures,
 in these regions:
 
+| OTP major | Elixir | Notes |
+|---|---|---|
+| 27 | 1.18, 1.19, 1.20 | default in the docs and `lambda.Dockerfile` |
+| 28 | 1.19, 1.20 | |
+| 29 | 1.20+ | no precompiled Elixir 1.18/1.19 exists for OTP 29 |
+
+Pick the layer that matches the OTP your Elixir was compiled with
+(`elixir --version` prints it); `mix lambda.doctor` resolves the ARN.
+
+
 `eu-central-1 eu-west-1 eu-west-2 eu-west-3 eu-north-1 us-east-1 us-east-2
 us-west-1 us-west-2 ca-central-1 sa-east-1 ap-southeast-1 ap-southeast-2
 ap-northeast-1 ap-northeast-2 ap-south-1`
