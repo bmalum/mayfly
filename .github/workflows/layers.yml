@@ -139,7 +139,7 @@ jobs:
           merged = {key(e): e for e in old}
           merged.update({key(e): e for e in new})
           site.write_text(json.dumps(sorted(merged.values(), key=key), indent=2) + "\n")
-          pathlib.Path("/tmp/site/data/layers.updated").write_text(__import__("datetime").datetime.utcnow().strftime("%Y-%m-%d") + "\n")
+          pathlib.Path("/tmp/site/data/layers.updated").write_text(__import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%d") + "\n")
           print(len(merged), "layer entries")
           PY
           cd /tmp/site
