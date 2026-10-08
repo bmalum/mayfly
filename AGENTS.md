@@ -137,6 +137,13 @@ publish public layers from a sandbox account.
   could be loaded"), never just "not found".
 - Inclusive language; no `master`/`slave`/`whitelist`/`blacklist`.
 
+## Roadmap goals (local, gitignored)
+
+`.goals/` holds one self-contained goal file per planned feature plus a
+`00-README.md` with shared context and a status table. They are deliberately
+not committed (they contain account-specific validation steps). Pick a goal,
+execute it, append your validation log, update the status table.
+
 ## Known gaps / ideas
 
 - Elixir precompiled layer (separate version axis; deliberately not done).

@@ -42,3 +42,6 @@ mayfly-*.tar
 
 # Dialyzer PLTs
 /priv/plts/
+
+# Local agent goal files (not part of the repo)
+/.goals/
