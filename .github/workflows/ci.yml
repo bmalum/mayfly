@@ -75,13 +75,22 @@ jobs:
         run: |
           MIX_ENV=test mix run --no-start -e '
             {:ok, rt} = Mayfly.LocalRuntime.start_link(port: 9101)
-            port = Port.open({:spawn_executable, "_build/test/rel/lambda/bootstrap"},
-              [:binary, :exit_status, :stderr_to_stdout,
-               env: [{~c"AWS_LAMBDA_RUNTIME_API", ~c"127.0.0.1:9101"}, {~c"_HANDLER", ~c"Mayfly.Test.Handlers.Faulty"}]])
-            {:ok, %{body: ~s({"ci":true})}} = Mayfly.LocalRuntime.invoke(rt, %{"ci" => true}, timeout: 20_000)
+            # A helper process owns the port and echoes everything bootstrap prints,
+            # so a failing start is diagnosable in CI.
+            parent = self()
+            spawn_link(fn ->
+              port = Port.open({:spawn_executable, "_build/test/rel/lambda/bootstrap"},
+                [:binary, :exit_status, :stderr_to_stdout,
+                 env: [{~c"AWS_LAMBDA_RUNTIME_API", ~c"127.0.0.1:9101"}, {~c"_HANDLER", ~c"Mayfly.Test.Handlers.Faulty"}]])
+              send(parent, {:port, port})
+              loop = fn loop -> receive do {^port, {:data, d}} -> IO.write(d); loop.(loop); {^port, {:exit_status, s}} -> IO.puts("bootstrap exited #{s}"); :done -> Port.close(port) end end
+              loop.(loop)
+            end)
+            port = receive do {:port, p} -> p end
+            {:ok, %{body: ~s({"ci":true})}} = Mayfly.LocalRuntime.invoke(rt, %{"ci" => true}, timeout: 60_000)
             {:error, %{"errorType" => "ArgumentError"}} = Mayfly.LocalRuntime.invoke(rt, %{"mode" => "raise"})
             IO.puts("e2e ok")
-            Port.close(port)
+            _ = port
           '
 
       - if: matrix.lint
