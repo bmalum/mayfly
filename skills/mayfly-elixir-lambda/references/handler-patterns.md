@@ -18,25 +18,36 @@ invocations (and across concurrent pollers on Managed Instances).
 version, memory, region, log group/stream). Helpers:
 `Mayfly.Context.remaining_time_ms/1`, `Mayfly.Context.logger_metadata/1`.
 
-## Event shapes
+## Event shapes – use `Mayfly.Events`
 
 ```elixir
-# direct invoke / EventBridge / SQS: the JSON you sent
-def handle(%{"Records" => records}, _ctx, _s), do: ...
+alias Mayfly.Events
+alias Mayfly.Events.{HTTP, SQS, S3, EventBridge, DynamoDB}
 
-# Function URL / API Gateway HTTP API: payload is wrapped
-def handle(%{"requestContext" => %{"http" => %{"method" => m, "path" => p}}, "body" => body}, ctx, s) do
-  {:ok, json} = JSON.decode(body || "{}")
-  {:ok, %{statusCode: 200, headers: %{"content-type" => "application/json"},
-          body: JSON.encode!(route(m, p, json))}}
-end
+def handle(event, _ctx, _s) do
+  case Events.decode(event) do
+    # Function URL / API Gateway (v1, v2, ALB): body already JSON-decoded, headers lowercased
+    {:ok, %HTTP.Request{method: "POST", path: "/items", body: body} = req} ->
+      HTTP.json(201, create(body), req, cookies: ["sid=…"])      # right shape for v1/v2/ALB
 
-# SQS partial batch response
-def handle(%{"Records" => records}, _ctx, _s) do
-  failures = for r <- records, {:error, _} <- [process(r)], do: %{itemIdentifier: r["messageId"]}
-  {:ok, %{batchItemFailures: failures}}
+    {:ok, %HTTP.Request{} = req} ->
+      HTTP.text(404, "not found", req)
+
+    # SQS with partial batch failures (ESM needs ReportBatchItemFailures)
+    {:ok, %SQS{} = sqs} ->
+      {:ok, SQS.process_batch(sqs, fn r -> process(r.body) end)}   # {:error,_}/raise => retried
+
+    {:ok, %S3{records: recs}} -> {:ok, for(r <- recs, do: ingest(r.bucket, r.key))}  # key URL-decoded
+    {:ok, %EventBridge{detail_type: "OrderPlaced", detail: d}} -> {:ok, place(d)}
+    {:ok, %DynamoDB{records: recs}} -> {:ok, for(%{event_name: :insert, new_image: i} <- recs, do: i)}
+    :unknown -> {:ok, %{echo: event}}
+  end
 end
 ```
+
+Also `Mayfly.Events.SNS` (and `SNS.from_envelope/1` for SNS→SQS), `Mayfly.Events.Kinesis`.
+Response helpers: `HTTP.respond/4`, `json/4`, `text/4`, `binary/5` (base64), `redirect/3`.
+Full guide: https://elixir-aws-lambda.dev/docs/events.md
 
 ## Errors
 

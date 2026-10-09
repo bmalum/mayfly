@@ -101,6 +101,7 @@ defmodule Mayfly.MixProject do
         "README.md",
         "CHANGELOG.md",
         "guides/getting-started.md",
+        "guides/events.md",
         "guides/deployment.md",
         "guides/layers.md",
         "guides/architecture.md",
@@ -115,6 +116,22 @@ defmodule Mayfly.MixProject do
           Mayfly.Context,
           Mayfly.Response,
           Mayfly.ErrorPayload
+        ],
+        "Event sources": [
+          Mayfly.Events,
+          Mayfly.Events.HTTP,
+          Mayfly.Events.HTTP.Request,
+          Mayfly.Events.SQS,
+          Mayfly.Events.SQS.Record,
+          Mayfly.Events.SNS,
+          Mayfly.Events.SNS.Record,
+          Mayfly.Events.S3,
+          Mayfly.Events.S3.Record,
+          Mayfly.Events.EventBridge,
+          Mayfly.Events.Kinesis,
+          Mayfly.Events.Kinesis.Record,
+          Mayfly.Events.DynamoDB,
+          Mayfly.Events.DynamoDB.Record
         ],
         Runtime: [
           Mayfly,

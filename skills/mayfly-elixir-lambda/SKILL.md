@@ -26,8 +26,12 @@ Facts an agent must not get wrong:
   generated `bootstrap` calls `Mayfly.Boot.main/0`.
 - With `layer: true` the build toolchain's OTP must equal the layer's OTP
   version exactly (e.g. 27.3.4.18). `mix lambda.doctor --layer ARN` verifies.
-- Function URL / API Gateway events arrive wrapped: the JSON body is the
-  string `event["body"]`. Test that shape with `mix lambda.invoke --http`.
+- Function URL / API Gateway events arrive wrapped: use
+  `Mayfly.Events.HTTP.decode/1` (`req.body` is already decoded) and the
+  `Mayfly.Events.HTTP.json/4` response helper. For SQS/SNS/S3/EventBridge/
+  Kinesis/DynamoDB Streams use the matching `Mayfly.Events.*` decoder or
+  `Mayfly.Events.decode/1`. Test each shape with
+  `mix lambda.invoke HANDLER JSON --event <source>`.
 
 ## Workflow
 
@@ -64,7 +68,7 @@ Facts an agent must not get wrong:
 
    ```bash
    mix lambda.invoke MyApp.Handler '{"name":"x"}'          # exact Lambda semantics, in-process emulator
-   mix lambda.invoke MyApp.Handler event.json --http --path /items
+   mix lambda.invoke MyApp.Handler '{"x":1}' --event apigw-v2 --path /items   # also: sqs s3 eventbridge dynamodb …
    mix lambda.doctor                                       # release config, handler init/1, OTP vs layer
    ```
 
@@ -93,6 +97,7 @@ Facts an agent must not get wrong:
 ## Reference material
 
 - `references/handler-patterns.md` – event shapes, errors, streaming, Managed Instances, config.
+- Event decoders guide: https://elixir-aws-lambda.dev/docs/events.md
 - `references/testing.md` – `Mayfly.LocalRuntime` in ExUnit, `mix lambda.invoke`.
 - Full docs, agent-friendly index: https://elixir-aws-lambda.dev/docs/llms.txt
   (every page also exists as `.md`, e.g. `.../docs/streaming.md`).

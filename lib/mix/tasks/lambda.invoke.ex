@@ -17,11 +17,19 @@ defmodule Mix.Tasks.Lambda.Invoke do
 
       --timeout MS     Deadline reported in the context (default 30000)
       --raw            Print the raw response body instead of pretty JSON
-      --http           Wrap the event the way a Function URL / API Gateway v2
-                       does (`{"version":"2.0","rawPath":...,"body":...}`), so
-                       handlers written for HTTP events can be tested locally
-      --method M       HTTP method for --http (default POST)
-      --path P         Request path for --http (default /)
+      --event SOURCE   Wrap the given JSON in a realistic envelope of that
+                       source, so handlers using `Mayfly.Events` can be tested
+                       locally. SOURCE is one of
+                       apigw-v2 (also Function URL), apigw-v1, alb, sqs, sns,
+                       s3, eventbridge, kinesis, dynamodb.
+                       The JSON becomes the HTTP body / SQS body / SNS message /
+                       EventBridge detail / Kinesis data / DynamoDB NewImage.
+                       For s3 pass {"key":"path/to object.txt"}.
+      --http           Alias for --event apigw-v2
+      --method M       HTTP method for HTTP envelopes (default POST)
+      --path P         Request path for HTTP envelopes (default /)
+      --detail-type T  EventBridge detail-type (default LocalEvent)
+      --source S       EventBridge source (default mix.lambda.invoke)
   """
 
   use Mix.Task
@@ -30,7 +38,16 @@ defmodule Mix.Tasks.Lambda.Invoke do
   def run(args) do
     {opts, positional, _} =
       OptionParser.parse(args,
-        strict: [timeout: :integer, raw: :boolean, http: :boolean, method: :string, path: :string]
+        strict: [
+          timeout: :integer,
+          raw: :boolean,
+          event: :string,
+          http: :boolean,
+          method: :string,
+          path: :string,
+          detail_type: :string,
+          source: :string
+        ]
       )
 
     {handler, event} =
@@ -40,10 +57,7 @@ defmodule Mix.Tasks.Lambda.Invoke do
         _ -> Mix.raise("usage: mix lambda.invoke HANDLER [EVENT_JSON | FILE | -]")
       end
 
-    event =
-      if opts[:http],
-        do: http_event(event, opts[:method] || "POST", opts[:path] || "/"),
-        else: event
+    event = wrap_event(event, opts)
 
     Mix.Task.run("app.start")
 
@@ -62,31 +76,28 @@ defmodule Mix.Tasks.Lambda.Invoke do
     end
   end
 
-  @doc false
-  def http_event(body, method, path) do
-    method = String.upcase(method)
-    now = System.system_time(:millisecond)
+  defp wrap_event(body, opts) do
+    source = opts[:event] || if(opts[:http], do: "apigw-v2")
 
-    JSON.encode!(%{
-      version: "2.0",
-      routeKey: "$default",
-      rawPath: path,
-      rawQueryString: "",
-      headers: %{"content-type" => "application/json", "host" => "localhost"},
-      requestContext: %{
-        http: %{
-          method: method,
-          path: path,
-          protocol: "HTTP/1.1",
-          sourceIp: "127.0.0.1",
-          userAgent: "mix lambda.invoke"
-        },
-        requestId: "local-#{now}",
-        timeEpoch: now
-      },
-      body: body,
-      isBase64Encoded: false
-    })
+    case source do
+      nil ->
+        body
+
+      source ->
+        fixture_opts =
+          [
+            method: opts[:method],
+            path: opts[:path],
+            detail_type: opts[:detail_type],
+            source: opts[:source]
+          ]
+          |> Enum.reject(fn {_, v} -> is_nil(v) end)
+
+        case Mix.Tasks.Lambda.Invoke.Fixtures.wrap(source, body, fixture_opts) do
+          {:ok, wrapped} -> wrapped
+          {:error, msg} -> Mix.raise(msg)
+        end
+    end
   end
 
   defp read_event("-"), do: IO.read(:stdio, :eof)

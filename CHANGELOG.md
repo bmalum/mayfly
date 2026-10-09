@@ -42,6 +42,17 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
 - Dialyzer runs in CI; a `Publish` workflow releases to Hex.pm on `v*` tags.
 - `skills/mayfly-elixir-lambda`: an Agent Skill for coding agents, shipped in
   the Hex package.
+- `Mayfly.Events`: typed decoders for API Gateway v1/v2 and Function URL
+  requests (`Mayfly.Events.HTTP` with JSON/base64-decoded bodies and response
+  helpers `json/4`, `text/4`, `binary/5`, `redirect/3`, `respond/4`), SQS, SNS
+  (incl. SNS-in-SQS envelopes), S3 (URL-decoded keys), EventBridge, Kinesis and
+  DynamoDB Streams (attribute values converted to terms); `process_batch/2`
+  partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
+  dispatcher. Verified on Lambda with a Function URL, SQS
+  `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `mix lambda.invoke --event SOURCE` wraps a payload in a realistic envelope
+  (`apigw-v2 apigw-v1 alb sqs sns s3 eventbridge kinesis dynamodb`); `--http`
+  is now an alias for `--event apigw-v2`.
 - `Mayfly.Response`: custom content types, response streaming with chunked
   transfer encoding, error trailers and the Function URL HTTP prelude
   (`Mayfly.Response.http/2`).

@@ -208,16 +208,76 @@ defmodule Mix.Tasks.LambdaTasksTest do
   end
 end
 
-defmodule Mix.Tasks.Lambda.InvokeHttpTest do
+defmodule Mix.Tasks.Lambda.InvokeFixturesTest do
   use ExUnit.Case, async: true
 
-  test "http_event/3 wraps the body like a Function URL" do
-    event = Mix.Tasks.Lambda.Invoke.http_event(~s({"a":1}), "get", "/items") |> JSON.decode!()
+  alias Mix.Tasks.Lambda.Invoke.Fixtures
+
+  test "apigw-v2 wraps the body like a Function URL" do
+    {:ok, json} = Fixtures.wrap("apigw-v2", ~s({"a":1}), method: "get", path: "/items")
+    event = JSON.decode!(json)
     assert event["version"] == "2.0"
     assert event["rawPath"] == "/items"
     assert event["requestContext"]["http"]["method"] == "GET"
     assert event["body"] == ~s({"a":1})
-    assert event["isBase64Encoded"] == false
+
+    assert {:ok, %Mayfly.Events.HTTP.Request{body: %{"a" => 1}, method: "GET"}} =
+             Mayfly.Events.decode(event)
+  end
+
+  test "every source produces an event Mayfly.Events.decode/1 recognises" do
+    for source <- Fixtures.sources() do
+      {:ok, json} =
+        Fixtures.wrap(
+          source,
+          ~s({"id":"a1","n":2,"ok":true,"tags":["x"],"m":{"k":"v"},"key":"dir/some file.txt"})
+        )
+
+      assert {:ok, struct} = Mayfly.Events.decode(JSON.decode!(json)),
+             "source #{source} not recognised"
+
+      assert is_struct(struct)
+    end
+  end
+
+  test "payload lands where each source carries it" do
+    body = ~s({"id":"a1","n":2,"ok":true,"tags":["x"],"m":{"k":"v"},"key":"dir/some file.txt"})
+
+    decoded = %{
+      "id" => "a1",
+      "n" => 2,
+      "ok" => true,
+      "tags" => ["x"],
+      "m" => %{"k" => "v"},
+      "key" => "dir/some file.txt"
+    }
+
+    wrap = fn s ->
+      {:ok, j} = Fixtures.wrap(s, body)
+      {:ok, e} = Mayfly.Events.decode(JSON.decode!(j))
+      e
+    end
+
+    assert %Mayfly.Events.SQS{records: [%{body: ^decoded}]} = wrap.("sqs")
+    assert %Mayfly.Events.SNS{records: [%{message: ^decoded}]} = wrap.("sns")
+    assert %Mayfly.Events.Kinesis{records: [%{data: ^decoded}]} = wrap.("kinesis")
+
+    assert %Mayfly.Events.EventBridge{detail: ^decoded, detail_type: "LocalEvent"} =
+             wrap.("eventbridge")
+
+    assert %Mayfly.Events.S3{records: [%{key: "dir/some file.txt"}]} = wrap.("s3")
+
+    assert %Mayfly.Events.DynamoDB{
+             records: [%{event_name: :insert, new_image: ^decoded, keys: %{"id" => "a1"}}]
+           } = wrap.("dynamodb")
+
+    assert %Mayfly.Events.HTTP.Request{version: :v1, body: ^decoded} = wrap.("apigw-v1")
+    assert %Mayfly.Events.HTTP.Request{version: :alb, body: ^decoded} = wrap.("alb")
+  end
+
+  test "unknown source" do
+    assert {:error, msg} = Fixtures.wrap("nope", "{}")
+    assert msg =~ "unknown --event nope"
   end
 end
 
