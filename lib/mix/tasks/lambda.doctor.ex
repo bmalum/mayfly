@@ -14,7 +14,10 @@ defmodule Mix.Tasks.Lambda.Doctor do
       for your OTP, `--arch` (default arm64) and `--region` (default
       `AWS_REGION`/`AWS_DEFAULT_REGION` or eu-central-1) and the matching ARN
       is printed;
-    * the Elixir/OTP versions are supported.
+    * the Elixir/OTP versions are supported;
+    * infrastructure files from `mix lambda.new` (`template.yaml`, `infra/*.tf`,
+      `infra/bin/app.ts`) agree with the toolchain: OTP major, pinned layer
+      ARNs, architecture, runtime.
 
       mix lambda.doctor
       mix lambda.doctor --arch x86_64 --region us-east-1
@@ -35,7 +38,7 @@ defmodule Mix.Tasks.Lambda.Doctor do
     Mix.Task.run("app.start")
 
     results =
-      [check_versions(), check_release(opts[:release], opts)]
+      [check_versions(), check_release(opts[:release], opts), check_iac(opts)]
       |> List.flatten()
 
     Enum.each(results, &print/1)
@@ -49,6 +52,20 @@ defmodule Mix.Tasks.Lambda.Doctor do
   end
 
   # -- checks ---------------------------------------------------------------------
+
+  defp check_iac(opts) do
+    alias Mix.Tasks.Lambda.IaC
+
+    case IaC.discover(".") do
+      [] ->
+        []
+
+      files ->
+        for {kind, paths} <- files do
+          IaC.check(IaC.inspect_files(kind, paths), otp_version(), opts[:arch])
+        end
+    end
+  end
 
   defp check_versions do
     otp = System.otp_release()
