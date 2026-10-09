@@ -111,6 +111,39 @@ aws cloudformation deploy --stack-name mayfly-layers-publisher \
 # -> Outputs.RoleArn becomes the GitHub secret LAYERS_ROLE_ARN
 ```
 
+## Why there is no Elixir layer
+
+Elixir's own applications (`elixir`, `logger`, `iex`) make up about 1.4 MB of
+a 1.6 MB layer-mode zip, so a second layer family (`mayfly-elixir-<vsn>-otp-<major>`,
+unpacking to `/opt/elixir`) looked attractive. We built it and measured it
+rather than argue: a prototype `strip_elixir` release step removed the three
+applications from the release, rewrote the boot scripts to load them from a
+`$MAYFLY_ELIXIR` boot variable, and `bootstrap` verified the layer's Elixir
+version the way it verifies ERTS. The same handler was then deployed three
+ways to the playground (arm64, 512 MB, JSON logs, Erlang/OTP 27.3.4.18,
+Elixir 1.18.4) and cold-started 21 times each by changing an environment
+variable between invocations. `initDurationMs` from `platform.report`:
+
+| Variant | Zip | `update-function-code` | Cold start median | p90 | min–max |
+|---|---|---|---|---|---|
+| 1. bundled ERTS | 22.4 MB | 10–14 s | 506 ms | 659 ms | 407–673 ms |
+| 2. ERTS layer (default) | 1.6 MB | 2.5–4.5 s | 543 ms | 709 ms | 399–728 ms |
+| 3. ERTS layer + Elixir layer | 0.16 MB | 1.8–2.5 s | 511 ms | 541 ms | 415–642 ms |
+
+The Elixir layer improves the median cold start by about 30 ms over today's
+default, under the 50 ms bar we set for shipping it, and saves roughly one
+second per deploy. Against that it adds a second version axis (every Elixir
+patch × every OTP major as a layer, matched exactly by `bootstrap`), a second
+ARN to attach, and a release step that edits boot scripts. The variance
+between runs (p90 differences of 100–170 ms in both directions) is larger
+than the effect. The bundled-ERTS variant, for what it is worth, cold-starts
+as fast as the layer variants; the layer buys build portability and a small
+upload, not speed.
+
+Decision: not shipped. If your fleet deploys dozens of functions per commit
+and the upload time matters, open an issue with numbers; the prototype is
+small and can be revived.
+
 ## Security notes
 
 - A layer is code that runs inside your function. Pin ARNs by version, verify
