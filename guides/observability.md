@@ -40,6 +40,31 @@ metadata to see request ids:
 config :logger, :default_formatter, metadata: [:request_id, :tenant_id]
 ```
 
+## Metrics (CloudWatch Embedded Metric Format)
+
+`Mayfly.Metrics` writes metrics as EMF JSON lines on stdout; CloudWatch Logs
+turns them into metrics with no API calls, no SDK and no extra permissions:
+
+```elixir
+Mayfly.Metrics.count("MyApp", "OrdersPlaced", 1, properties: %{"orderId" => id})
+Mayfly.Metrics.timing("MyApp", "DbLatency", ms, dimensions: %{"Table" => "orders"})
+Mayfly.Metrics.emit("MyApp", %{"CartValue" => {129.5, "None"}, "Items" => 3}, dimensions: %{"Tenant" => t})
+```
+
+Per-invocation `Duration`, `Errors` and `ColdStart` (dimension `FunctionName`)
+come for free when `:telemetry` is a dependency:
+
+```elixir
+def init(_opts) do
+  Mayfly.Metrics.attach_invocation_metrics("MyApp")
+  {:ok, nil}
+end
+```
+
+Query with `aws cloudwatch get-metric-statistics --namespace MyApp …` about a
+minute after the invocation. EMF lines bypass `Logger` on purpose: CloudWatch
+parses them from the raw line, which must be a standalone JSON object.
+
 ## Telemetry
 
 Add `{:telemetry, "~> 1.0"}` to your deps and Mayfly emits:

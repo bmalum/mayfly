@@ -107,6 +107,7 @@ defmodule Mayfly.MixProject do
         "guides/architecture.md",
         "guides/streaming.md",
         "guides/observability.md",
+        "guides/idempotency.md",
         "guides/migrating-from-0.x.md"
       ],
       groups_for_extras: [Guides: ~r/guides\/.*/],
@@ -141,7 +142,7 @@ defmodule Mayfly.MixProject do
           Mayfly.RuntimeAPI,
           Mayfly.HTTP
         ],
-        Observability: [Mayfly.Telemetry, Mayfly.LogFormatter],
+        Observability: [Mayfly.Metrics, Mayfly.Telemetry, Mayfly.LogFormatter],
         "Build & local dev": [
           Mayfly.Release,
           Mayfly.LocalRuntime,

@@ -50,6 +50,15 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `Mayfly.Metrics`: CloudWatch Embedded Metric Format (`emit/3`, `count/4`,
+  `timing/4`, `build/3`) and `attach_invocation_metrics/2` emitting
+  `Duration`/`Errors`/`ColdStart` per invocation. Verified end to end:
+  datapoints appear in CloudWatch under the namespace.
+- Companion package [`mayfly_aws`](https://github.com/bmalum/mayfly_aws) with
+  `Mayfly.Idempotency` (DynamoDB-backed exactly-once execution), a minimal
+  signed DynamoDB client and `Mayfly.AWS.SigV4`; `guides/idempotency.md`.
+- Optional `:telemetry` calls go through `apply/3`, so consumers without the
+  dependency compile warning-free.
 - `mix lambda.invoke --event SOURCE` wraps a payload in a realistic envelope
   (`apigw-v2 apigw-v1 alb sqs sns s3 eventbridge kinesis dynamodb`); `--http`
   is now an alias for `--event apigw-v2`.

@@ -198,6 +198,7 @@ For a faithful emulation (timeouts, cold starts) use [aws-lambda-rie](https://gi
 ## Observability
 
 - **Logs**: set the function's log format to JSON (advanced logging controls) and Mayfly emits `{"timestamp","level","requestId","tenantId","message",...}` lines via `Mayfly.LogFormatter`; `AWS_LAMBDA_LOG_LEVEL`/`LOGLEVEL` set the level. `request_id`, `tenant_id` and `trace_id` are in `Logger.metadata` during every invocation.
+- **Metrics**: `Mayfly.Metrics.count/4`, `timing/4`, `emit/3` write CloudWatch Embedded Metric Format lines (no API calls); `Mayfly.Metrics.attach_invocation_metrics/1` adds `Duration`, `Errors`, `ColdStart` per invocation.
 - **Telemetry** (optional dep): `[:mayfly, :init, :stop]`, `[:mayfly, :invocation, :start | :stop]`, `[:mayfly, :poll, :error]`.
 - **X-Ray**: `_X_AMZN_TRACE_ID` is exported per invocation; errors carry an X-Ray cause header.
 
@@ -227,7 +228,8 @@ The docs are also published as Markdown with an index at [elixir-aws-lambda.dev/
 - [Deployment](guides/deployment.md) – layer vs bundled ERTS, Docker, IaC snippets
 - [Erlang runtime layers](guides/layers.md) – public ARNs, naming, self-hosting, automation
 - [Streaming](guides/streaming.md)
-- [Observability](guides/observability.md)
+- [Observability](guides/observability.md) – JSON logs, EMF metrics, telemetry, X-Ray
+- [Idempotency](guides/idempotency.md) – exactly-once handlers with `mayfly_aws`
 - [Architecture](guides/architecture.md)
 - [Migrating from 0.x](guides/migrating-from-0.x.md)
 

@@ -26,8 +26,9 @@ defmodule Mayfly.Telemetry do
 
   @doc false
   def execute(event, measurements, metadata) do
+    # apply/3 keeps consumers that skip the optional :telemetry dep warning-free.
     if Code.ensure_loaded?(:telemetry) do
-      :telemetry.execute(event, measurements, metadata)
+      apply(:telemetry, :execute, [event, measurements, metadata])
     end
 
     :ok

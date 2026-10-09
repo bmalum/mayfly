@@ -81,6 +81,19 @@ Handlers run concurrently in separate processes. Lambda does not kill a handler
 at the deadline there: check `Mayfly.Context.remaining_time_ms/1` in loops.
 Memory must be >= 2048 MB.
 
+## Metrics and idempotency
+
+```elixir
+Mayfly.Metrics.count("MyApp", "OrdersPlaced", 1, properties: %{"orderId" => id})   # EMF line → CloudWatch metric
+Mayfly.Metrics.timing("MyApp", "DbLatency", ms)
+def init(_), do: (Mayfly.Metrics.attach_invocation_metrics("MyApp"); {:ok, nil})  # Duration/Errors/ColdStart
+
+# exactly-once (dep {:mayfly_aws, "~> 0.1"}, DynamoDB table with pk id + TTL expires_at)
+case Mayfly.Idempotency.run(event, fn -> do_work(event) end, key_fun: & &1["orderId"], context: ctx) do
+  {:ok, r} -> ...; {:ok, r, :replayed} -> ...; {:error, :in_progress} -> ...
+end
+```
+
 ## Configuration and observability
 
 - `config/runtime.exs` works (bootstrap sets `RELEASE_TMP=/tmp`).
