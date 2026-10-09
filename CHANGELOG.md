@@ -50,6 +50,14 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `mix lambda.new PATH [--iac sam|terraform|cdk] [--arch] [--otp] [--region]`:
+  generates a project (handler with HTTP branch, release config,
+  `.tool-versions` pinned to the layer's OTP from the catalog, LocalRuntime
+  test, README) plus a working SAM, Terraform or CDK definition.
+- `templates/` with SAM, Terraform and a CDK `MayflyFunction` construct whose
+  layer ARN maps (16 regions × OTP 27/28/29 × arch) are rendered from the
+  catalog by `layer/render-templates.sh`, run weekly by the layers workflow.
+  All three deployed, invoked and destroyed from generated projects.
 - `mix lambda.build --image [--tag] [--push ECR_URI]`: container image for
   Lambda's image package type. Release built in the AL2023 build container,
   image based on `public.ecr.aws/lambda/provided:al2023` with the handler as

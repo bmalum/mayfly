@@ -76,6 +76,16 @@ AWS_PROFILE=mayfly-admin layer/publish.sh --region eu-central-1 --arch arm64 --p
 `layer/dist/arns.json` is what the website consumes; merge it into
 `mayfly_website/data/layers.json` if you publish manually.
 
+### IaC templates
+`templates/{sam,terraform,cdk}` carry layer ARN maps between
+`mayfly-layers:begin/end` markers. `layers.yml` re-renders them after
+publishing (`layer/render-templates.sh /tmp/site/data/layers.json`) and commits
+to `main` when they changed. Manually: `layer/render-templates.sh` (fetches the
+catalog with curl; prints `changed`/`unchanged`). Keys are
+`otp<major><arch>` with `x86_64` as `x8664` (CloudFormation mapping keys must be
+alphanumeric). Smoke-test after editing: `mix lambda.new /tmp/t --iac sam && cd /tmp/t && sam validate --lint`
+(needs `--mayfly path:...` when run from the checkout).
+
 ### Rules
 - Never delete a layer version. Users pin ARNs.
 - Publish public layers only from mayfly-admin (651236577491).

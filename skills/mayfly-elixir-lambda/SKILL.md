@@ -35,6 +35,12 @@ Facts an agent must not get wrong:
 
 ## Workflow
 
+Fastest start: `mix lambda.new NAME [--iac sam|terraform|cdk] [--arch arm64|x86_64] [--otp 27|28|29]`
+(available wherever `mayfly` is a dependency, or from a Mayfly checkout) generates the
+project, handler, test, `.tool-versions` matching the public layer, and deployable IaC.
+Then `cd NAME && mix deps.get && mix test && mix lambda.invoke NAME.Handler '{}'`.
+
+
 1. **Add the dependency and a release** to `mix.exs` (function captures, not
    a call, so `mix deps.get` works before Mayfly is compiled):
 

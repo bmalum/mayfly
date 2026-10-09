@@ -8,6 +8,12 @@
 
 ## 1. Add Mayfly and a release
 
+> **Shortcut:** `mix lambda.new hello --iac sam` (from any project that has
+> `mayfly` in its deps, or a Mayfly checkout) generates everything in steps 1–3
+> plus a SAM, Terraform or CDK definition; see the
+> [deployment guide](deployment.md#infrastructure-as-code). The steps below
+> show what it generates.
+
 ```elixir
 # mix.exs
 def project do

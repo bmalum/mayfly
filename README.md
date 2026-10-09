@@ -21,6 +21,12 @@
 
 ## Quick start
 
+```bash
+mix lambda.new hello --iac sam     # new project + SAM (or terraform | cdk); needs mayfly in deps or a checkout
+```
+
+Or by hand:
+
 ```elixir
 # mix.exs
 def project do
@@ -187,6 +193,7 @@ mix lambda.invoke MyApp.Handler event.json                  # from a file
 mix lambda.invoke MyApp.Handler.legacy_fun -                # from stdin
 mix lambda.invoke MyApp.Handler '{"id": 1}' --http --path /items   # wrapped like a Function URL event
 mix lambda.doctor --layer arn:aws:lambda:…:layer:mayfly-erlang-27-arm64:1   # release config, handler, OTP vs layer
+mix lambda.new hello --iac terraform --arch x86_64 --otp 28                 # generate a project with IaC
 ```
 
 `mix lambda.invoke` runs the real runtime (handler resolution, `init/1`, context, error formatting, streaming) against `Mayfly.LocalRuntime`, an in-process Runtime API emulator you can also use in ExUnit:
@@ -229,7 +236,7 @@ The docs are also published as Markdown with an index at [elixir-aws-lambda.dev/
 
 - [Getting started](guides/getting-started.md)
 - [Event sources](guides/events.md) – typed decoders for API Gateway, SQS, SNS, S3, EventBridge, Kinesis, DynamoDB Streams
-- [Deployment](guides/deployment.md) – layer vs bundled ERTS, Docker, IaC snippets
+- [Deployment](guides/deployment.md) – layer, bundled ERTS, container image; `mix lambda.new` with SAM / Terraform / CDK templates
 - [Erlang runtime layers](guides/layers.md) – public ARNs, naming, self-hosting, automation
 - [Streaming](guides/streaming.md)
 - [Plug and Phoenix](guides/phoenix.md) – routers and endpoints as handlers with `mayfly_plug`

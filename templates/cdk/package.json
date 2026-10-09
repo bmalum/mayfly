@@ -1,0 +1,22 @@
+{
+  "name": "__FUNCTION_NAME__-cdk",
+  "version": "0.1.0",
+  "private": true,
+  "bin": { "app": "bin/app.js" },
+  "scripts": {
+    "build": "tsc",
+    "cdk": "cdk",
+    "deploy": "cdk deploy --require-approval never",
+    "destroy": "cdk destroy --force"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "aws-cdk": "2.1145.0",
+    "ts-node": "10.9.2",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "2.273.0",
+    "constructs": "10.8.1"
+  }
+}

@@ -1,0 +1,15 @@
+version = 0.1
+
+[default.global.parameters]
+stack_name = "__FUNCTION_NAME__"
+
+[default.build.parameters]
+cached = false
+parallel = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+fail_on_empty_changeset = false
+tags = "project=\"__FUNCTION_NAME__\""

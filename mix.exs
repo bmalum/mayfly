@@ -65,7 +65,7 @@ defmodule Mayfly.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://elixir-aws-lambda.dev/docs"},
       files:
-        ~w(lib priv guides layer skills lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md LICENSE)
+        ~w(lib priv guides layer skills templates lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 

@@ -146,3 +146,16 @@ jobs:
           git config user.name "mayfly-layers-bot" && git config user.email "layers@elixir-aws-lambda.dev"
           git add data && git diff --cached --quiet && { echo "catalog unchanged"; exit 0; }
           git commit -m "layers: update catalog ($(date -u +%F))" && git push
+
+      - name: Render layer ARN maps into the IaC templates
+        if: env.HAVE_KEY == 'true'
+        env:
+          HAVE_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY != '' }}
+        run: |
+          # Uses the merged catalog from the website checkout (all published versions).
+          layer/render-templates.sh /tmp/site/data/layers.json | tee render.log
+          grep -q '^changed$' render.log || { echo "templates unchanged"; exit 0; }
+          git config user.name "mayfly-layers-bot" && git config user.email "layers@elixir-aws-lambda.dev"
+          git add templates
+          git commit -m "templates: layer ARNs from catalog ($(date -u +%F))"
+          git push origin HEAD:${{ github.ref_name }}
