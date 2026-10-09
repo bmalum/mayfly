@@ -82,7 +82,9 @@ Resources:
                   - lambda:GetLayerVersion
                   - lambda:AddLayerVersionPermission
                   - lambda:GetLayerVersionPolicy
-                Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:${LayerNamePrefix}-*
+                Resource:
+                  - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:${LayerNamePrefix}-*
+                  - !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:mayfly-shutdown-*
         - !If
           - WithSmoke
           - PolicyName: smoke-functions

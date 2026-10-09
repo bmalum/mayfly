@@ -160,6 +160,46 @@ jobs:
           git commit -m "templates: layer ARNs from catalog ($(date -u +%F))"
           git push origin HEAD:${{ github.ref_name }}
 
+  # The mayfly-shutdown external extension (tiny static binary, one zip per arch).
+  # Published alongside the ERTS layers; version descriptions carry the sha256,
+  # so unchanged source publishes nothing.
+  shutdown-extension:
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with: { platforms: arm64 }
+      - run: layer/build-shutdown-extension.sh --arch x86_64 && layer/build-shutdown-extension.sh --arch arm64
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.LAYERS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish to all regions
+        run: |
+          args=(--skip-existing)
+          [ "${{ inputs.public }}" != "false" ] && args+=(--public)
+          for r in ${{ vars.LAYERS_REGIONS || env.DEFAULT_REGIONS }}; do args+=(--region "$r"); done
+          layer/publish-shutdown.sh "${args[@]}"
+      - name: Attach to the 'layers' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload layers --clobber layer/dist/shutdown-arns.json layer/dist/mayfly-shutdown-*.zip.sha256
+      - name: Update the catalog on elixir-aws-lambda.dev
+        if: env.HAVE_KEY == 'true'
+        env:
+          HAVE_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY != '' }}
+          DEPLOY_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/website_key && chmod 600 ~/.ssh/website_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/website_key -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:bmalum/mayfly_website.git /tmp/site
+          mkdir -p /tmp/site/data && cp layer/dist/shutdown-arns.json /tmp/site/data/shutdown-layers.json
+          cd /tmp/site && git config user.name "mayfly-layers-bot" && git config user.email "layers@elixir-aws-lambda.dev"
+          git add data && git diff --cached --quiet && { echo "unchanged"; exit 0; }
+          git commit -m "layers: update shutdown extension catalog ($(date -u +%F))" && git push
+
   # End-to-end smoke test of the published layers: for every OTP major and
   # architecture, build a tiny Mayfly release with that exact OTP, deploy it with
   # the just-published layer, invoke it, and delete it. Opt-in: requires the
