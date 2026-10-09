@@ -106,6 +106,7 @@ defmodule Mayfly.MixProject do
         "guides/layers.md",
         "guides/architecture.md",
         "guides/streaming.md",
+        "guides/phoenix.md",
         "guides/observability.md",
         "guides/idempotency.md",
         "guides/migrating-from-0.x.md"

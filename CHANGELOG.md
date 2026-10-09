@@ -54,6 +54,11 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   `timing/4`, `build/3`) and `attach_invocation_metrics/2` emitting
   `Duration`/`Errors`/`ColdStart` per invocation. Verified end to end:
   datapoints appear in CloudWatch under the namespace.
+- Companion package [`mayfly_plug`](https://github.com/bmalum/mayfly_plug):
+  `Mayfly.Plug.Adapter` (`Plug.Conn.Adapter` for API Gateway v1/v2, Function
+  URL and ALB events) and `use Mayfly.Plug.Handler, plug: …` to run Plug
+  routers and Phoenix endpoints as handlers, with response streaming for
+  `send_chunked`; `guides/phoenix.md` with measured cold starts.
 - Companion package [`mayfly_aws`](https://github.com/bmalum/mayfly_aws) with
   `Mayfly.Idempotency` (DynamoDB-backed exactly-once execution), a minimal
   signed DynamoDB client and `Mayfly.AWS.SigV4`; `guides/idempotency.md`.

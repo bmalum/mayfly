@@ -81,6 +81,15 @@ Handlers run concurrently in separate processes. Lambda does not kill a handler
 at the deadline there: check `Mayfly.Context.remaining_time_ms/1` in loops.
 Memory must be >= 2048 MB.
 
+## Plug and Phoenix (dep {:mayfly_plug, "~> 0.1"})
+
+```elixir
+defmodule MyApp.Lambda, do: use Mayfly.Plug.Handler, plug: {MyAppWeb.Endpoint, []}   # or plug: MyRouter
+# streaming: true for a RESPONSE_STREAM Function URL; on_error: :propagate to surface rendered 500s as Lambda errors
+```
+Phoenix: `server: false`, no `http:` block, bandit only in dev/test, no DNSCluster, SECRET_KEY_BASE/PHX_HOST as env vars.
+No LiveView/channels (WebSocket). Test: `mix lambda.invoke MyApp.Lambda '{}' --http --method GET --path /api/x`.
+
 ## Metrics and idempotency
 
 ```elixir

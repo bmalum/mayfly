@@ -144,6 +144,8 @@ See [guides/events.md](guides/events.md). `mix lambda.invoke … --event sqs` (o
 
 See [guides/streaming.md](guides/streaming.md).
 
+**Plug and Phoenix.** With the companion package [`mayfly_plug`](https://github.com/bmalum/mayfly_plug) a router or endpoint *is* the handler: `use Mayfly.Plug.Handler, plug: {MyAppWeb.Endpoint, []}`. API Gateway, Function URL and ALB events become `%Plug.Conn{}`s; `send_chunked` streams with `streaming: true`. Phoenix 1.8 JSON APIs cold-start in ~0.6–0.75 s. LiveView needs a WebSocket and is out of scope. See [guides/phoenix.md](guides/phoenix.md).
+
 ## Errors
 
 | Situation | `errorType` | Header (`Lambda-Runtime-Function-Error-Type`) |
@@ -228,6 +230,7 @@ The docs are also published as Markdown with an index at [elixir-aws-lambda.dev/
 - [Deployment](guides/deployment.md) – layer vs bundled ERTS, Docker, IaC snippets
 - [Erlang runtime layers](guides/layers.md) – public ARNs, naming, self-hosting, automation
 - [Streaming](guides/streaming.md)
+- [Plug and Phoenix](guides/phoenix.md) – routers and endpoints as handlers with `mayfly_plug`
 - [Observability](guides/observability.md) – JSON logs, EMF metrics, telemetry, X-Ray
 - [Idempotency](guides/idempotency.md) – exactly-once handlers with `mayfly_aws`
 - [Architecture](guides/architecture.md)

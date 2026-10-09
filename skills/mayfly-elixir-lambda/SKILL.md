@@ -96,7 +96,7 @@ Facts an agent must not get wrong:
 
 ## Reference material
 
-- `references/handler-patterns.md` – event shapes, errors, streaming, Managed Instances, config.
+- `references/handler-patterns.md` – event shapes, errors, streaming, Plug/Phoenix (`mayfly_plug`), metrics, idempotency (`mayfly_aws`), Managed Instances, config.
 - Event decoders guide: https://elixir-aws-lambda.dev/docs/events.md
 - `references/testing.md` – `Mayfly.LocalRuntime` in ExUnit, `mix lambda.invoke`.
 - Full docs, agent-friendly index: https://elixir-aws-lambda.dev/docs/llms.txt
