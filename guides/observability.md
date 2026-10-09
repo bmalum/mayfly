@@ -147,11 +147,46 @@ logged at `debug`; to see those lines set the function's
 `ApplicationLogLevel` to `DEBUG` (Lambda's log filter applies before yours).
 
 Limits: Lambda does not deliver `SHUTDOWN` to internal extensions
-(registering for it fails with `ShutdownEventNotSupportedForInternalExtension`),
-so there is no shutdown hook; that would require an external extension. Cost:
+(registering for it fails with `ShutdownEventNotSupportedForInternalExtension`);
+for a shutdown hook see the next section. Cost:
 one registration and one subscription call at init; measured cold start
 median 534 ms with the extension vs 527 ms without (arm64, 512 MB, 12/10
 samples), within the run-to-run noise.
+
+## Graceful shutdown (`Mayfly.Shutdown` + the `mayfly-shutdown` layer)
+
+Lambda never tells a plain runtime that its execution environment is about to
+be discarded: the sandbox is frozen and later dropped, and anything still in
+memory (buffered log lines, metrics not yet flushed, open connections) goes
+with it. The exception: when an **external extension** is registered, Lambda
+sends `SIGTERM` to the runtime and waits up to 2 s before `SIGKILL`.
+
+Mayfly ships that extension as the layer `mayfly-shutdown-<arch>`: a 260 KB
+static binary at `/opt/extensions/mayfly-shutdown` that registers for
+`SHUTDOWN` and does nothing else. Attach it next to the Erlang layer and
+`Mayfly.Shutdown` (installed by `Mayfly.Boot`) turns the signal into
+
+1. `:telemetry` event `[:mayfly, :shutdown]` with `%{reason: :sigterm}`,
+2. your hooks, each bounded by 1 s (`register/1`, typically from `init/1`),
+3. `Logger.flush/0`,
+4. `System.halt(0)`.
+
+```elixir
+def init(_opts) do
+  Mayfly.Shutdown.register(fn -> MyApp.Metrics.flush() end)
+  Mayfly.Shutdown.register(fn -> MyApp.Repo.stop() end)
+  {:ok, nil}
+end
+```
+
+Without the layer nothing changes; the handler is simply never triggered.
+Verified on Lambda: on a `TIMEOUT` shutdown the log shows
+`Mayfly: shutdown (sigterm), running 1 hook(s)`, the hook's own line,
+`Mayfly: shutdown complete in 3 ms`, then the extension's exit; the same
+function without the layer logs nothing. Cold start with the layer: 519 ms
+vs 512 ms median without (6 samples each, arm64, 512 MB), noise. Layer ARNs
+are in the catalog (`layers/shutdown-arns.json` on the `layers` release and
+the website).
 
 ## X-Ray
 

@@ -111,6 +111,17 @@ aws cloudformation deploy --stack-name mayfly-layers-publisher \
 # -> Outputs.RoleArn becomes the GitHub secret LAYERS_ROLE_ARN
 ```
 
+## The shutdown extension layer
+
+`mayfly-shutdown-<arch>` is a second, tiny layer family: a static C binary
+registered as an external extension so Lambda sends `SIGTERM` to the runtime
+before discarding the environment (see the observability guide, "Graceful
+shutdown"). It is architecture-specific but OTP-independent, so one version
+serves every function. Built by `layer/build-shutdown-extension.sh`, published
+by `layer/publish-shutdown.sh` and the `shutdown-extension` job of the layers
+workflow; ARNs are listed in `shutdown-arns.json` on the `layers` GitHub
+release and in the website catalog.
+
 ## Why there is no Elixir layer
 
 Elixir's own applications (`elixir`, `logger`, `iex`) make up about 1.4 MB of

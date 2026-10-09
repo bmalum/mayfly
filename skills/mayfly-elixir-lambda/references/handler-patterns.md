@@ -90,6 +90,18 @@ defmodule MyApp.Lambda, do: use Mayfly.Plug.Handler, plug: {MyAppWeb.Endpoint, [
 Phoenix: `server: false`, no `http:` block, bandit only in dev/test, no DNSCluster, SECRET_KEY_BASE/PHX_HOST as env vars.
 No LiveView/channels (WebSocket). Test: `mix lambda.invoke MyApp.Lambda '{}' --http --method GET --path /api/x`.
 
+## Graceful shutdown
+
+Attach the `mayfly-shutdown-<arch>` layer (external extension → Lambda sends SIGTERM) and register
+hooks in `init/1`: `Mayfly.Shutdown.register(fn -> flush_metrics() end)`. Each hook gets 1 s; then
+Logger is flushed and the VM halts. Without the layer Lambda never signals the runtime.
+
+## AWS calls (dep {:mayfly_aws, "~> 0.2"})
+
+`Mayfly.AWS.S3` (put/get/head/delete/list/presign), `Mayfly.AWS.SQS` (send/receive/delete),
+`Mayfly.AWS.SNS.publish/3`, `Mayfly.AWS.SSM.get_parameters_by_path!/2` and
+`Mayfly.AWS.SecretsManager.get_secret_json/2` (fetch in `init/1`). Errors are `{:error, {code, msg}}`.
+
 ## Platform telemetry (billed duration, max memory)
 
 Set `MAYFLY_EXTENSION=1` on the function (needs `{:telemetry, "~> 1.0"}`); then

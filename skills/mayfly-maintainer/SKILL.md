@@ -76,6 +76,19 @@ AWS_PROFILE=mayfly-admin layer/publish.sh --region eu-central-1 --arch arm64 --p
 `layer/dist/arns.json` is what the website consumes; merge it into
 `mayfly_website/data/layers.json` if you publish manually.
 
+### Shutdown extension layer
+`layer/build-shutdown-extension.sh --arch arm64|x86_64` (static C, needs docker/finch; scratch dir
+under layer/dist), `AWS_PROFILE=mayfly-admin layer/publish-shutdown.sh --region R --public --skip-existing`.
+The `shutdown-extension` job in `layers.yml` does both after the ERTS publish. OTP-independent:
+rebuild only when `layer/shutdown-extension/mayfly-shutdown.c` changes (sha256 in the description
+makes re-publishing a no-op).
+
+### Smoke matrix
+`layers.yml` job `smoke` deploys + invokes one function per OTP major × arch after publishing when
+`vars.LAYERS_SMOKE_ROLE_ARN` is set. Create the role with
+`aws cloudformation deploy --stack-name mayfly-layers-publisher --template-file layer/publisher-role.yml --parameter-overrides SmokeTests=true ... --capabilities CAPABILITY_NAMED_IAM`
+and `gh variable set LAYERS_SMOKE_ROLE_ARN --body <SmokeRoleArn output>`.
+
 ### IaC templates
 `templates/{sam,terraform,cdk}` carry layer ARN maps between
 `mayfly-layers:begin/end` markers. `layers.yml` re-renders them after

@@ -85,7 +85,7 @@ aws lambda create-function --function-name hello \
 | | Supported |
 |---|---|
 | Elixir | 1.18 or newer |
-| Erlang/OTP | 27, 28 or 29; public layers exist for the latest patch of each (OTP 29 needs Elixir ≥ 1.20) |
+| Erlang/OTP | 27, 28 or 29; public layers for the latest patch of each (OTP 29 needs Elixir ≥ 1.20), every major verified on arm64 and x86_64 |
 | Lambda | `provided.al2023`, x86_64 or arm64; Lambda (default) and Managed Instances |
 
 Upgrading from 0.x? See [guides/migrating-from-0.x.md](guides/migrating-from-0.x.md).
@@ -211,6 +211,7 @@ For a faithful emulation (timeouts, cold starts) use [aws-lambda-rie](https://gi
 - **Logs**: set the function's log format to JSON (advanced logging controls) and Mayfly emits `{"timestamp","level","requestId","tenantId","message",...}` lines via `Mayfly.LogFormatter`; `AWS_LAMBDA_LOG_LEVEL`/`LOGLEVEL` set the level. `request_id`, `tenant_id` and `trace_id` are in `Logger.metadata` during every invocation.
 - **Metrics**: `Mayfly.Metrics.count/4`, `timing/4`, `emit/3` write CloudWatch Embedded Metric Format lines (no API calls); `Mayfly.Metrics.attach_invocation_metrics/1` adds `Duration`, `Errors`, `ColdStart` per invocation.
 - **Telemetry** (optional dep): `[:mayfly, :init, :stop]`, `[:mayfly, :invocation, :start | :stop]`, `[:mayfly, :poll, :error]`.
+- **Graceful shutdown**: attach the `mayfly-shutdown` layer and `Mayfly.Shutdown.register/1` hooks run on `SIGTERM` before the environment is discarded, followed by a log flush.
 - **Platform telemetry**: `MAYFLY_EXTENSION=1` registers an internal Lambda extension that turns Telemetry API records into `[:mayfly, :platform, *]` events; `Mayfly.Metrics.attach_platform_metrics/1` publishes billed duration, max memory and init duration as metrics.
 - **X-Ray**: `_X_AMZN_TRACE_ID` is exported per invocation; errors carry an X-Ray cause header.
 
@@ -219,6 +220,15 @@ See [guides/observability.md](guides/observability.md).
 ## Lambda Managed Instances
 
 Mayfly starts `AWS_LAMBDA_MAX_CONCURRENCY` pollers, each an isolated process, so a single execution environment serves that many invocations in parallel (verified on real Managed Instances: 8 concurrent invocations, one VM, 0.13 s wall time). Handler `state` from `init/1` is shared read-only. Managed Instances do not kill a handler at its deadline – check `Mayfly.Context.remaining_time_ms/1` in long loops. Requires `--memory-size` ≥ 2048 and a capacity provider; see the deployment guide.
+
+## Companion packages
+
+| Package | What |
+|---|---|
+| [`mayfly_plug`](https://github.com/bmalum/mayfly_plug) | Plug routers and Phoenix endpoints as handlers (tested against a real Phoenix 1.8 endpoint) |
+| [`mayfly_aws`](https://github.com/bmalum/mayfly_aws) | Idempotency on DynamoDB; S3, SQS, SNS, SSM, Secrets Manager clients with no dependencies, all verified from Lambda |
+
+Roadmap and a PR-FAQ for durable workflows: [ROADMAP.md](ROADMAP.md).
 
 ## Documentation
 

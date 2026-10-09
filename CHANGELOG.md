@@ -50,6 +50,15 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `Mayfly.Shutdown` + the `mayfly-shutdown` external extension layer: with the
+  layer attached Lambda sends SIGTERM before discarding the environment; Mayfly
+  emits `[:mayfly, :shutdown]`, runs registered hooks (1 s each), flushes
+  Logger and halts. Verified on Lambda; no measurable cold-start cost.
+  `layer/build-shutdown-extension.sh`, `layer/publish-shutdown.sh`, workflow job.
+- CI: OTP 29 and arm64 rows, container-image job invoking through the Runtime
+  Interface Emulator; `layers.yml` gained an opt-in post-publish smoke matrix
+  (every OTP major × architecture deployed and invoked on Lambda).
+- `ROADMAP.md` with the Durable Functions PR-FAQ.
 - `Mayfly.Extension` (opt-in, `MAYFLY_EXTENSION=1`): internal Lambda extension
   that subscribes to the Telemetry API and emits `[:mayfly, :platform, type]`
   `:telemetry` events with the record metrics; `Mayfly.Metrics.attach_platform_metrics/2`

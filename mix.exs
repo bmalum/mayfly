@@ -65,7 +65,7 @@ defmodule Mayfly.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://elixir-aws-lambda.dev/docs"},
       files:
-        ~w(lib priv guides layer skills templates lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md LICENSE)
+        ~w(lib priv guides layer skills templates lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md ROADMAP.md LICENSE)
     ]
   end
 
@@ -100,6 +100,7 @@ defmodule Mayfly.MixProject do
       extras: [
         "README.md",
         "CHANGELOG.md",
+        "ROADMAP.md",
         "guides/getting-started.md",
         "guides/events.md",
         "guides/deployment.md",
@@ -143,7 +144,13 @@ defmodule Mayfly.MixProject do
           Mayfly.RuntimeAPI,
           Mayfly.HTTP
         ],
-        Observability: [Mayfly.Metrics, Mayfly.Extension, Mayfly.Telemetry, Mayfly.LogFormatter],
+        Observability: [
+          Mayfly.Metrics,
+          Mayfly.Extension,
+          Mayfly.Shutdown,
+          Mayfly.Telemetry,
+          Mayfly.LogFormatter
+        ],
         "Build & local dev": [
           Mayfly.Release,
           Mayfly.LocalRuntime,
