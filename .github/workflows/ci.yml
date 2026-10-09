@@ -71,7 +71,11 @@ jobs:
           test -s _build/test/rel/lambda/lambda.zip
           test -x _build/test/rel/lambda/bootstrap
 
+      # setup-beam's arm64 OTP uses an erl wrapper bound to its install path, so a
+      # bundled-ERTS release does not relocate on that runner. The arm64 runtime is
+      # covered end to end by the layers smoke matrix on real Lambda instead.
       - name: Run the built bootstrap against the emulator (end-to-end)
+        if: matrix.runner != 'ubuntu-24.04-arm'
         run: |
           MIX_ENV=test mix run --no-start -e '
             {:ok, rt} = Mayfly.LocalRuntime.start_link(port: 9101)
