@@ -52,7 +52,7 @@ lib/mayfly/log_formatter.ex JSON log lines for AWS_LAMBDA_LOG_FORMAT=JSON
 lib/mayfly/telemetry.ex    optional :telemetry wrapper
 lib/mayfly/release.ex      release steps prepare/1, bootstrap/1, zip/1
 lib/mayfly/local_runtime.ex Runtime API emulator (tests, mix lambda.invoke)
-lib/mix/tasks/lambda.{build,invoke,doctor}.ex
+lib/mix/tasks/lambda.{build,invoke,doctor}.ex   build: zip (native/--docker) or --image (+ --push to ECR)
 priv/rel/vm.args.eex       Lambda-tuned vm.args template
 layer/                     build.sh, publish.sh, latest-otp.sh, publisher-role.yml, README.md
 lambda.Dockerfile          AL2023 image: targets `otp`, `layer`, `build`
@@ -88,8 +88,10 @@ the built `bootstrap` against `Mayfly.LocalRuntime`. Keep it green.
   `mayfly-playground-lambda-role`. Managed Instances need a capacity provider
   (m7g.large works for arm64, MaxVCpuCount ≥ 16, memory ≥ 2048) and are
   billable: delete the provider afterwards.
-- Docker is not installed on the maintainer's Mac; `finch` is. `lambda.build`
-  and `layer/build.sh` fall back to it automatically (`CONTAINER_CLI=` overrides).
+- The maintainer's Mac has the docker CLI (colima) and `finch`; `lambda.build`
+  and `layer/build.sh` take whichever is on PATH (`CONTAINER_CLI=` overrides).
+  Neither shares `/tmp` with the VM: put demo projects under `~/Development/tmp`
+  when they need a container build.
 
 ## Releasing the library
 
@@ -150,7 +152,7 @@ execute it, append your validation log, update the status table.
   numbers and reasoning in `guides/layers.md`, prototype in
   `.goals/05-elixir-layer-experiment.patch` (local) and commit `d6673da`
   (`layer/build-elixir.sh`).
-- `mix lambda.build` still uses `mix release` under the hood only; a
+- `mix lambda.build` produces zips and container images (`--image --push`); a
   `--deploy` step is intentionally out of scope (use the AWS CLI / IaC).
 - Durable Functions SDK for Elixir would be a separate library on top of
   `Mayfly.Context`.

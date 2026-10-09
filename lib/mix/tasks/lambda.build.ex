@@ -1,19 +1,46 @@
 defmodule Mix.Tasks.Lambda.Build do
-  @shortdoc "Builds a Lambda deployment package (mix release + zip), optionally in Docker"
+  @shortdoc "Builds a Lambda deployment package (zip or container image)"
 
   @moduledoc """
-  Builds the Lambda package for a release configured with `Mayfly.Release`
-  and copies the resulting `lambda.zip` to `--outdir`.
+  Builds the Lambda package for a release configured with `Mayfly.Release`:
+  a `lambda.zip` (copied to `--outdir`) or, with `--image`, a container image
+  for Lambda's image package type.
 
       mix lambda.build                       # native: MIX_ENV=prod mix release lambda
       mix lambda.build --docker              # inside Amazon Linux 2023, x86_64
       mix lambda.build --docker --arch arm64
       mix lambda.build --release other --env staging --outdir ./deploy
+      mix lambda.build --image --arch arm64  # container image my_app-lambda:latest
+      mix lambda.build --image --arch arm64 --push 123456789012.dkr.ecr.eu-central-1.amazonaws.com/my-app
 
   Without `--docker`, the release is built on this machine. That is correct
   when the release uses the Mayfly ERTS layer (`mayfly: [layer: true]`) or when
   you are on Amazon Linux 2023 with the target architecture; otherwise use
   `--docker` so the bundled ERTS matches Lambda.
+
+  ## Container images (`--image`)
+
+  The release is built inside the Amazon Linux 2023 build container (as with
+  `--docker`) and copied into an image based on
+  `public.ecr.aws/lambda/provided:al2023`, at `/var/task`, with the
+  function handler as the image `CMD`. The base image's entrypoint runs the
+  Runtime Interface Emulator when `AWS_LAMBDA_RUNTIME_API` is unset, so the
+  image can be invoked locally:
+
+      finch run --rm --platform linux/arm64 -p 9000:8080 my_app-lambda:latest
+      curl -d '{"name":"x"}' localhost:9000/2015-03-31/functions/function/invocations
+
+  Releases with bundled ERTS and releases built for the Mayfly layer both
+  work; in the latter case `/opt/erlang` from the build image is copied into
+  the function image. Native dependencies (NIFs) are compiled in the build
+  stage, so no layer and no local toolchain are needed. Put a
+  `lambda.image.Dockerfile` in your project to customise the image (system
+  packages, extra files); it receives the build args `RELEASE_DIR` (release
+  directory relative to the project), `BUILD_IMAGE` and `HANDLER`.
+
+  `--push REPO_URI` logs in to ECR with the AWS CLI, tags and pushes, and
+  prints the `aws lambda create-function --package-type Image` command with
+  the image digest.
 
   ## Options
 
@@ -21,8 +48,11 @@ defmodule Mix.Tasks.Lambda.Build do
       --env, -e        MIX_ENV for the release (default: prod)
       --outdir, -o     Where to copy lambda.zip (default: current directory)
       --docker, -d     Build inside a container from lambda.Dockerfile (docker or finch)
-      --arch, -a       x86_64 (default) or arm64, Docker only
-      --image          Docker image tag (default: mayfly-build-<app>)
+      --arch, -a       x86_64 (default) or arm64, Docker and image builds
+      --image          Build a container image instead of a zip (implies --docker)
+      --tag, -t        Image name:tag (default: <app>-lambda:latest)
+      --push           ECR repository URI to push the image to
+      --build-image    Tag of the Amazon Linux build image (default: mayfly-build-<app>)
   """
 
   use Mix.Task
@@ -33,10 +63,14 @@ defmodule Mix.Tasks.Lambda.Build do
     outdir: :string,
     docker: :boolean,
     arch: :string,
-    image: :string,
+    image: :boolean,
+    tag: :string,
+    push: :string,
+    build_image: :string,
     help: :boolean
   ]
-  @aliases [r: :release, e: :env, o: :outdir, d: :docker, a: :arch, h: :help]
+  @aliases [r: :release, e: :env, o: :outdir, d: :docker, a: :arch, t: :tag, h: :help]
+  @base_image "public.ecr.aws/lambda/provided:al2023"
   @archs %{"x86_64" => "linux/amd64", "arm64" => "linux/arm64"}
   @workdir "/mnt/code"
 
@@ -54,6 +88,12 @@ defmodule Mix.Tasks.Lambda.Build do
       opts[:arch] && not Map.has_key?(@archs, opts[:arch]) ->
         Mix.raise("--arch must be x86_64 or arm64")
 
+      opts[:push] && !opts[:image] ->
+        Mix.raise("--push requires --image")
+
+      opts[:image] ->
+        build_image(with_defaults(opts))
+
       true ->
         build(with_defaults(opts))
     end
@@ -65,6 +105,8 @@ defmodule Mix.Tasks.Lambda.Build do
     |> Keyword.put_new(:arch, "x86_64")
     |> Keyword.put_new(:outdir, ".")
     |> Keyword.put_new_lazy(:release, &default_release/0)
+    |> then(fn o -> if o[:image], do: Keyword.put(o, :docker, true), else: o end)
+    |> Keyword.put_new_lazy(:tag, fn -> "#{Mix.Project.config()[:app]}-lambda:latest" end)
   end
 
   defp default_release do
@@ -101,13 +143,200 @@ defmodule Mix.Tasks.Lambda.Build do
     Mix.shell().info("  runtime provided.al2023 · handler: set to your Mayfly.Handler module")
   end
 
+  # -- container image -----------------------------------------------------------------
+
+  defp build_image(opts) do
+    docker_release(opts)
+
+    cli = container_cli()
+    platform = Map.fetch!(@archs, opts[:arch])
+    release_dir = release_path(opts)
+    handler = release_handler(opts[:release])
+    build_image = build_image_tag()
+    bundled_erts? = Path.wildcard(Path.join(release_dir, "erts-*")) != []
+
+    {dockerfile, context, args} =
+      case File.exists?("lambda.image.Dockerfile") do
+        true ->
+          {"lambda.image.Dockerfile", File.cwd!(),
+           [
+             "--build-arg",
+             "RELEASE_DIR=#{Path.relative_to(release_dir, File.cwd!())}",
+             "--build-arg",
+             "BUILD_IMAGE=#{build_image}",
+             "--build-arg",
+             "HANDLER=#{handler}"
+           ]}
+
+        false ->
+          File.write!(
+            Path.join(release_dir, "lambda.image.Dockerfile"),
+            image_dockerfile(handler, build_image, bundled_erts?)
+          )
+
+          File.write!(
+            Path.join(release_dir, ".dockerignore"),
+            "lambda.zip\nlambda.image.Dockerfile\n"
+          )
+
+          {Path.join(release_dir, "lambda.image.Dockerfile"), release_dir, []}
+      end
+
+    run!(
+      cli,
+      ["build", "--platform", platform, "-t", opts[:tag], "-f", dockerfile] ++
+        no_attestations(cli) ++ args ++ [context]
+    )
+
+    Mix.shell().info([
+      :green,
+      "✓ ",
+      :reset,
+      "image #{opts[:tag]} (#{opts[:arch]}, handler #{handler})"
+    ])
+
+    port = 9000
+
+    Mix.shell().info("""
+      run locally (Runtime Interface Emulator is in the base image):
+        #{cli} run --rm --platform #{platform} -p #{port}:8080 #{opts[:tag]}
+        curl -d '{}' http://localhost:#{port}/2015-03-31/functions/function/invocations
+    """)
+
+    if repo = opts[:push], do: push_image(cli, opts, repo, handler)
+  end
+
+  @doc false
+  @spec image_dockerfile(String.t(), String.t(), boolean()) :: String.t()
+  def image_dockerfile(handler, build_image, bundled_erts?) do
+    erts =
+      if bundled_erts?,
+        do: "",
+        else:
+          "# Release built for the Mayfly layer: take ERTS from the build image.\nCOPY --from=#{build_image} /opt/erlang /opt/erlang\n"
+
+    """
+    # Generated by mix lambda.build --image. Override with lambda.image.Dockerfile in your project.
+    FROM #{@base_image}
+    #{erts}COPY . ${LAMBDA_TASK_ROOT}/
+    # The base entrypoint runs /var/runtime/bootstrap (through aws-lambda-rie when
+    # AWS_LAMBDA_RUNTIME_API is unset) and exports its single argument as _HANDLER.
+    RUN ln -sf ${LAMBDA_TASK_ROOT}/bootstrap /var/runtime/bootstrap
+    CMD ["#{handler}"]
+    """
+  end
+
+  # BuildKit wraps single-platform images in an OCI index with provenance/SBOM
+  # attestation manifests, which Lambda rejects ("image manifest, config or layer
+  # media type ... is not supported"). Turn them off where the CLI knows the flags.
+  defp no_attestations(cli) do
+    {help, _} = System.cmd(cli, ["build", "--help"], stderr_to_stdout: true)
+    for flag <- ["--provenance", "--sbom"], String.contains?(help, flag), do: "#{flag}=false"
+  rescue
+    ErlangError -> []
+  end
+
+  defp push_image(cli, opts, repo, handler) do
+    {registry, region} = parse_ecr(repo)
+    remote = "#{repo}:#{tag_of(opts[:tag])}"
+
+    Mix.shell().info([
+      :cyan,
+      "$ aws ecr get-login-password | #{cli} login --username AWS --password-stdin #{registry}"
+    ])
+
+    # System.cmd cannot feed stdin; let the shell do the pipe. Both names are
+    # validated (region by the ECR regex, cli is docker/finch or CONTAINER_CLI).
+    login =
+      "aws ecr get-login-password --region #{region} | #{cli} login --username AWS --password-stdin #{registry}"
+
+    case System.cmd("sh", ["-c", login], stderr_to_stdout: true) do
+      {out, 0} -> Mix.shell().info(String.trim(out))
+      {out, status} -> Mix.raise("ECR login failed (#{status}): #{out}")
+    end
+
+    run!(cli, ["tag", opts[:tag], remote])
+    run!(cli, ["push", remote])
+
+    digest =
+      aws!([
+        "ecr",
+        "describe-images",
+        "--region",
+        region,
+        "--repository-name",
+        repo |> String.split("/", parts: 2) |> List.last(),
+        "--image-ids",
+        "imageTag=#{tag_of(opts[:tag])}",
+        "--query",
+        "imageDetails[0].imageDigest",
+        "--output",
+        "text"
+      ])
+      |> String.trim()
+
+    Mix.shell().info([:green, "✓ ", :reset, "pushed #{remote} (#{digest})"])
+
+    Mix.shell().info("""
+      create the function (no --runtime, no --layers for images):
+        aws lambda create-function --function-name my-function --package-type Image \\
+          --code ImageUri=#{repo}@#{digest} --architectures #{opts[:arch]} \\
+          --role arn:aws:iam::ACCOUNT:role/lambda-role --logging-config LogFormat=JSON
+      override the handler per function with --image-config Command=#{handler}
+    """)
+  end
+
+  @doc false
+  @spec parse_ecr(String.t()) :: {String.t(), String.t()}
+  def parse_ecr(repo) do
+    case Regex.run(~r/^(\d{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com(?:\.cn)?)\/[^:@]+$/, repo) do
+      [_, registry, region] ->
+        {registry, region}
+
+      _ ->
+        Mix.raise(
+          "--push expects an ECR repository URI like 123456789012.dkr.ecr.eu-central-1.amazonaws.com/my-app, got #{repo}"
+        )
+    end
+  end
+
+  defp tag_of(name_tag) do
+    case String.split(name_tag, ":") do
+      [_name, tag] -> tag
+      _ -> "latest"
+    end
+  end
+
+  defp aws!(args) do
+    case System.cmd("aws", args, stderr_to_stdout: true) do
+      {out, 0} -> out
+      {out, status} -> Mix.raise("`aws #{Enum.join(args, " ")}` failed (#{status}): #{out}")
+    end
+  rescue
+    e in ErlangError -> Mix.raise("--push needs the AWS CLI on PATH: #{Exception.message(e)}")
+  end
+
+  defp release_handler(release) do
+    releases = Mix.Project.config()[:releases] || []
+    mayfly = releases |> Keyword.get(String.to_atom(release), []) |> Keyword.get(:mayfly, [])
+
+    case Keyword.get(mayfly, :handler) do
+      nil -> Mix.raise("releases: #{release}: missing mayfly: [handler: ...]")
+      module when is_atom(module) -> inspect(module)
+      string when is_binary(string) -> string
+    end
+  end
+
+  defp build_image_tag, do: "mayfly-build-#{Mix.Project.config()[:app]}"
+
+  # -- zip -----------------------------------------------------------------------------
+
   defp native_release(opts) do
     run!("mix", ["release", opts[:release], "--overwrite"], env: [{"MIX_ENV", opts[:env]}])
   end
 
   defp docker_release(opts) do
-    app = Mix.Project.config()[:app]
-    image = opts[:image] || "mayfly-build-#{app}"
+    image = opts[:build_image] || build_image_tag()
     platform = Map.fetch!(@archs, opts[:arch])
     cli = container_cli()
     extra_mounts = path_dep_mounts()

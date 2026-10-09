@@ -175,6 +175,8 @@ mix lambda.build --docker --arch arm64      # docker or finch; uses lambda.Docke
 
 Drop a `lambda.Dockerfile` into your project to add system libraries for NIFs.
 
+**3. Container image.** `mix lambda.build --image --arch arm64 [--push ECR_URI]` builds the release in the same container and packages it on `public.ecr.aws/lambda/provided:al2023` for Lambda's image package type (NIFs, system libraries, up to 10 GB). The image runs locally through the bundled Runtime Interface Emulator; cold starts are on par with zips once cached (~430 ms measured). See [guides/deployment.md](guides/deployment.md#container-image).
+
 `Mayfly.Release.prepare/1` applies `strip_beams`, Unix-only executables and a Lambda-tuned `vm.args` (no busy waiting, no distribution; a single scheduler on standard Lambda, all vCPUs on Managed Instances). Override any of it by setting the option yourself in the release config.
 
 ## Local development

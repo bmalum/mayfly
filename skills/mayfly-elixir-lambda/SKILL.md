@@ -77,6 +77,11 @@ Facts an agent must not get wrong:
 4. **Build.** `MIX_ENV=prod mix release lambda` writes
    `_build/prod/rel/lambda/lambda.zip`. Without `layer: true`, build inside
    Amazon Linux 2023 instead: `mix lambda.build --docker --arch arm64`.
+   For a container image (NIFs, system libraries) use
+   `mix lambda.build --image --arch arm64 --push <ecr-repo-uri>` and create
+   the function with `--package-type Image --code ImageUri=…@sha256:…` (no
+   runtime, no layers, handler is the image CMD). Test the image locally with
+   `docker run -p 9000:8080 <tag>` + `curl -d '{}' localhost:9000/2015-03-31/functions/function/invocations`.
 
 5. **Deploy** with runtime `provided.al2023`, architecture matching the layer,
    handler = module name, layer `mayfly-erlang-<otp>-<arch>` (ARNs:

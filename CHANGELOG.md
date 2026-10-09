@@ -50,6 +50,13 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `mix lambda.build --image [--tag] [--push ECR_URI]`: container image for
+  Lambda's image package type. Release built in the AL2023 build container,
+  image based on `public.ecr.aws/lambda/provided:al2023` with the handler as
+  `CMD`, `lambda.image.Dockerfile` override, ECR login/tag/push with digest,
+  attestations disabled (Lambda rejects OCI indexes with them). Verified with
+  a bcrypt C NIF on arm64: local RIE invoke and Lambda, cold start median
+  433 ms once cached.
 - `Mayfly.Metrics`: CloudWatch Embedded Metric Format (`emit/3`, `count/4`,
   `timing/4`, `build/3`) and `attach_invocation_metrics/2` emitting
   `Duration`/`Errors`/`ColdStart` per invocation. Verified end to end:

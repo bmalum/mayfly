@@ -168,6 +168,39 @@ defmodule Mix.Tasks.LambdaTasksTest do
     end
   end
 
+  test "lambda.build --push requires --image" do
+    assert_raise Mix.Error, ~r/--push requires --image/, fn ->
+      Mix.Tasks.Lambda.Build.run(["--push", "123456789012.dkr.ecr.eu-central-1.amazonaws.com/x"])
+    end
+  end
+
+  test "image_dockerfile/3 bases on the Lambda image, links bootstrap and sets the handler CMD" do
+    df = Mix.Tasks.Lambda.Build.image_dockerfile("MyApp.Handler", "mayfly-build-my_app", true)
+    assert df =~ "FROM public.ecr.aws/lambda/provided:al2023"
+    assert df =~ "COPY . ${LAMBDA_TASK_ROOT}/"
+    assert df =~ "ln -sf ${LAMBDA_TASK_ROOT}/bootstrap /var/runtime/bootstrap"
+    assert df =~ ~s(CMD ["MyApp.Handler"])
+    refute df =~ "/opt/erlang"
+
+    layer = Mix.Tasks.Lambda.Build.image_dockerfile("MyApp.Handler", "mayfly-build-my_app", false)
+    assert layer =~ "COPY --from=mayfly-build-my_app /opt/erlang /opt/erlang"
+  end
+
+  test "parse_ecr/1 extracts registry and region" do
+    assert {"123456789012.dkr.ecr.eu-central-1.amazonaws.com", "eu-central-1"} =
+             Mix.Tasks.Lambda.Build.parse_ecr(
+               "123456789012.dkr.ecr.eu-central-1.amazonaws.com/team/app"
+             )
+
+    assert_raise Mix.Error, ~r/ECR repository URI/, fn ->
+      Mix.Tasks.Lambda.Build.parse_ecr("ghcr.io/x/y")
+    end
+
+    assert_raise Mix.Error, ~r/ECR repository URI/, fn ->
+      Mix.Tasks.Lambda.Build.parse_ecr("123456789012.dkr.ecr.eu-central-1.amazonaws.com/app:tag")
+    end
+  end
+
   test "lambda.build --help prints usage" do
     Mix.shell(Mix.Shell.Process)
 

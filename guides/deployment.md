@@ -1,17 +1,24 @@
 # Deployment
 
-## Choosing how ERTS gets to Lambda
+## Choosing how the runtime gets to Lambda
 
-| | ERTS layer (`layer: true`) | Bundled ERTS |
-|---|---|---|
-| Zip size | 1–5 MB | 25–50 MB |
-| Build host | any OS, no Docker | Amazon Linux 2023 or `--docker` |
-| Build time | seconds | seconds + one-off 20–40 min image build |
-| NIF dependencies | need the layer *and* Linux-built NIFs (`--docker`) | works |
-| OTP version | must equal the layer's OTP version exactly (checked at start) | whatever you build with |
+| | Zip + ERTS layer (`layer: true`) | Zip + bundled ERTS | Container image (`--image`) |
+|---|---|---|---|
+| Artifact | 1–5 MB zip | 25–50 MB zip | 60–70 MB compressed image in ECR (≈270 MB unpacked, 10 GB limit) |
+| Build host | any OS, no Docker | Amazon Linux 2023 or `--docker` | docker or finch (release built inside the container) |
+| Build time | seconds | seconds + one-off 20–40 min image build | same as `--docker`, plus a few seconds for the image |
+| NIF dependencies | need the layer *and* Linux-built NIFs (`--docker`) | works | works; add system libraries in `lambda.image.Dockerfile` |
+| OTP version | must equal the layer's exactly (checked at start) | whatever you build with | whatever you build with |
+| Cold start (arm64, 512 MB, measured) | ~540 ms median | ~505 ms median | ~430 ms median after the first pull; the very first start of a new image ≈1.2 s |
+| Deploy | `update-function-code --zip-file` (2–4 s) | `update-function-code --zip-file` (10–14 s) | `update-function-code --image-uri` after `push` |
+| Function URL / API GW / streaming / Managed Instances | yes | yes | yes |
+| SnapStart | no | no | no (managed runtimes only) |
 
 Recommendation: layer for everything without NIFs; bundled ERTS via Docker
-otherwise. Public layer ARNs and the naming scheme are in [layers.md](layers.md).
+when you want a zip anyway; container image when the function needs native
+libraries (ImageMagick, Rust, C NIFs), when your pipeline already builds
+images, or when you want to run the exact artefact locally. Public layer ARNs
+and the naming scheme are in [layers.md](layers.md).
 
 ## Release configuration
 
@@ -68,6 +75,71 @@ with a separate `MIX_BUILD_PATH`, and copies `lambda.zip` out. `path:`
 dependencies outside the project are mounted read-only into the container.
 Add system packages for NIFs by copying Mayfly's Dockerfile into your project
 and extending the `dnf install` line.
+
+## Container image
+
+```bash
+mix lambda.build --image --arch arm64                # -> my_app-lambda:latest
+mix lambda.build --image --arch arm64 --push 123456789012.dkr.ecr.eu-central-1.amazonaws.com/my-app
+```
+
+`--image` builds the release inside the Amazon Linux 2023 build container
+exactly like `--docker` (so NIFs compile there, no local toolchain needed) and
+copies it into an image based on `public.ecr.aws/lambda/provided:al2023` at
+`/var/task`, with your handler as the image `CMD`. The generated Dockerfile:
+
+```dockerfile
+FROM public.ecr.aws/lambda/provided:al2023
+COPY . ${LAMBDA_TASK_ROOT}/
+RUN ln -sf ${LAMBDA_TASK_ROOT}/bootstrap /var/runtime/bootstrap
+CMD ["MyApp.Handler"]
+```
+
+Both release flavours work: a bundled-ERTS release is self-contained; a
+`layer: true` release gets `/opt/erlang` copied from the build image instead
+(smaller image, ~90 MB unpacked). Drop a `lambda.image.Dockerfile` into your
+project to replace the generated one, for instance to `dnf install` ImageMagick
+or copy configuration files; it receives the build args `RELEASE_DIR`,
+`BUILD_IMAGE` and `HANDLER`.
+
+The base image's entrypoint exports its argument as `_HANDLER` and runs
+`/var/runtime/bootstrap`, through the Runtime Interface Emulator when
+`AWS_LAMBDA_RUNTIME_API` is unset. So the image runs locally as is:
+
+```bash
+docker run --rm --platform linux/arm64 -p 9000:8080 my_app-lambda:latest
+curl -d '{"name":"x"}' http://localhost:9000/2015-03-31/functions/function/invocations
+```
+
+`--push` logs in to ECR (`aws ecr get-login-password`), tags, pushes and
+prints the `create-function` command with the image digest. The build passes
+`--provenance=false --sbom=false`: BuildKit otherwise wraps the image in an
+OCI index with attestation manifests, which Lambda rejects with "image
+manifest, config or layer media type … is not supported".
+
+```bash
+aws ecr create-repository --repository-name my-app --image-scanning-configuration scanOnPush=true
+aws lambda create-function --function-name my-app --package-type Image \
+  --code ImageUri=123456789012.dkr.ecr.eu-central-1.amazonaws.com/my-app@sha256:… \
+  --architectures arm64 --role arn:aws:iam::123456789012:role/lambda-role \
+  --logging-config LogFormat=JSON
+# later:
+aws lambda update-function-code --function-name my-app --image-uri …@sha256:…
+```
+
+No `--runtime`, no `--layers`, no `--handler`: the handler is the image
+`CMD` (override per function with `--image-config Command=Other.Handler`).
+SAM: `PackageType: Image`, `ImageUri`, `Metadata: {Dockerfile, DockerContext}`
+or push yourself; Terraform: `package_type = "Image"`, `image_uri`; CDK:
+`lambda.DockerImageFunction` / `Code.fromEcrImage`. Everything else (Function
+URLs, streaming, JSON logs, Managed Instances) is unchanged.
+
+Measured on the playground (bcrypt C NIF, arm64, 512 MB, 63 MB compressed /
+268 MB unpacked, 10 forced cold starts): `initDurationMs` median 433 ms, p90
+547 ms, min 386 ms; the first start after the push took 1188 ms while Lambda
+pulled and cached the image. Warm invocations 2–10 ms plus the handler's own
+work. That is on par with the zip variants once the image is cached; budget
+the first-pull second for brand-new image digests.
 
 ## HTTP events (Function URLs, API Gateway)
 
