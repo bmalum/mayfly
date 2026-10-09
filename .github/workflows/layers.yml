@@ -159,3 +159,65 @@ jobs:
           git add templates
           git commit -m "templates: layer ARNs from catalog ($(date -u +%F))"
           git push origin HEAD:${{ github.ref_name }}
+
+  # End-to-end smoke test of the published layers: for every OTP major and
+  # architecture, build a tiny Mayfly release with that exact OTP, deploy it with
+  # the just-published layer, invoke it, and delete it. Opt-in: requires the
+  # execution role in vars.LAYERS_SMOKE_ROLE_ARN (see layer/publisher-role.yml,
+  # parameter SmokeTests=true) in the same account as the layers.
+  smoke:
+    needs: [versions, publish]
+    if: vars.LAYERS_SMOKE_ROLE_ARN != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: ${{ fromJson(needs.versions.outputs.otps) }}
+        arch: [x86_64, arm64]
+    runs-on: ubuntu-24.04
+    env:
+      AWS_REGION: ${{ vars.LAYERS_SMOKE_REGION || 'eu-central-1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the Elixir release for this OTP major
+        id: elixir
+        run: |
+          major="${{ matrix.otp }}"; major="${major%%.*}"
+          case "$major" in
+            27) echo "version=1.18.4" ;;
+            28) echo "version=1.19.3" ;;
+            *)  echo "version=1.20.2" ;;
+          esac >> "$GITHUB_OUTPUT"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ steps.elixir.outputs.version }}
+      - name: Build a release against the layer
+        run: |
+          mix deps.get
+          MIX_ENV=test mix release lambda --overwrite
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.LAYERS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy, invoke, delete
+        run: |
+          arch="${{ matrix.arch }}"; otp="${{ matrix.otp }}"
+          fn="mayfly-smoke-${otp//./-}-${arch}-${GITHUB_RUN_ID}"
+          layer="$(jq -r --arg r "$AWS_REGION" --arg o "$otp" --arg a "$arch" \
+            '.[] | select(.region==$r and .otp==$o and .arch==$a) | .arn' layer/dist/arns.json)"
+          test -n "$layer" || { echo "no layer ARN for $otp/$arch in $AWS_REGION"; exit 1; }
+          trap 'aws lambda delete-function --function-name "$fn" >/dev/null 2>&1 || true' EXIT
+          aws lambda create-function --function-name "$fn" --runtime provided.al2023 \
+            --architectures "$arch" --handler Mayfly.Test.Handlers.Faulty --layers "$layer" \
+            --zip-file fileb://_build/test/rel/lambda/lambda.zip \
+            --role "${{ vars.LAYERS_SMOKE_ROLE_ARN }}" --timeout 30 --memory-size 512 \
+            --logging-config LogFormat=JSON --tags project=mayfly,purpose=smoke >/dev/null
+          aws lambda wait function-active-v2 --function-name "$fn"
+          aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out \
+            --payload '{"smoke":true}' out.json --query FunctionError --output text | grep -q None
+          grep -q '"smoke":true' out.json
+          aws lambda invoke --function-name "$fn" --cli-binary-format raw-in-base64-out \
+            --payload '{"mode":"raise"}' err.json --query FunctionError --output text | grep -q Unhandled
+          grep -q '"errorType":"ArgumentError"' err.json
+          echo "ok: $otp on $arch with $layer"
+

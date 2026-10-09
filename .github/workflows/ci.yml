@@ -10,17 +10,26 @@ permissions:
 
 jobs:
   test:
-    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
-    runs-on: ubuntu-24.04
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - elixir: "1.18.4"
             otp: "27.3"
+            runner: ubuntu-24.04
             lint: true
           - elixir: "1.19"
             otp: "28"
+            runner: ubuntu-24.04
+          - elixir: "1.20"
+            otp: "29"
+            runner: ubuntu-24.04
+          # arm64: the architecture most Mayfly functions run on
+          - elixir: "1.18.4"
+            otp: "27.3"
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -77,3 +86,27 @@ jobs:
 
       - if: matrix.lint
         run: mix docs 2>&1 | tee docs.log && ! grep -i warning docs.log
+
+  # Container image path: build the test release into a Lambda image and invoke
+  # it through the Runtime Interface Emulator bundled in the base image.
+  image:
+    name: Container image (RIE)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.4"
+          otp-version: "27.3"
+      - run: mix deps.get
+      - name: mix lambda.build --image
+        run: MIX_ENV=test mix lambda.build --image --env test --release lambda --tag mayfly-ci:latest
+      - name: Invoke through the Runtime Interface Emulator
+        run: |
+          docker run -d --name rie -p 9000:8080 mayfly-ci:latest Mayfly.Test.Handlers.Faulty
+          for i in $(seq 1 20); do curl -sf -d '{"ci":true}' localhost:9000/2015-03-31/functions/function/invocations -o out.json && break; sleep 1; done
+          cat out.json; grep -q '"ci":true' out.json
+          curl -s -d '{"mode":"raise"}' localhost:9000/2015-03-31/functions/function/invocations | tee err.json | grep -q '"errorType":"ArgumentError"'
+          docker logs rie 2>&1 | tail -5
+          docker rm -f rie
+

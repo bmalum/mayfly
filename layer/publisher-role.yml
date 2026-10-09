@@ -28,8 +28,19 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: set to "false" if token.actions.githubusercontent.com already exists in this account
 
+  SmokeTests:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >-
+      also create an execution role and allow the publisher to create/invoke/delete
+      throwaway mayfly-smoke-* functions, so layers.yml can deploy and invoke a test
+      function per OTP/arch after publishing (set the output SmokeRoleArn as GitHub
+      variable LAYERS_SMOKE_ROLE_ARN)
+
 Conditions:
   CreateProvider: !Equals [!Ref CreateOidcProvider, "true"]
+  WithSmoke: !Equals [!Ref SmokeTests, "true"]
 
 Resources:
   GitHubOidcProvider:
@@ -72,8 +83,46 @@ Resources:
                   - lambda:AddLayerVersionPermission
                   - lambda:GetLayerVersionPolicy
                 Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:layer:${LayerNamePrefix}-*
+        - !If
+          - WithSmoke
+          - PolicyName: smoke-functions
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - lambda:CreateFunction
+                    - lambda:GetFunction
+                    - lambda:GetFunctionConfiguration
+                    - lambda:InvokeFunction
+                    - lambda:DeleteFunction
+                    - lambda:TagResource
+                  Resource: !Sub arn:aws:lambda:*:${AWS::AccountId}:function:mayfly-smoke-*
+                - Effect: Allow
+                  Action: iam:PassRole
+                  Resource: !GetAtt SmokeExecutionRole.Arn
+          - !Ref AWS::NoValue
+
+  SmokeExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: WithSmoke
+    Properties:
+      RoleName: mayfly-smoke-lambda-role
+      Description: Execution role for throwaway layer smoke-test functions
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
 Outputs:
+  SmokeRoleArn:
+    Condition: WithSmoke
+    Value: !GetAtt SmokeExecutionRole.Arn
+    Description: set as GitHub variable LAYERS_SMOKE_ROLE_ARN to enable the smoke job
   RoleArn:
     Value: !GetAtt PublisherRole.Arn
     Description: set as GitHub secret LAYERS_ROLE_ARN
