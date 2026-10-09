@@ -20,6 +20,8 @@ defmodule Mayfly.Boot do
   def main(_args \\ []) do
     configure_logger()
     start_applications()
+    # SIGTERM arrives only when the mayfly-shutdown extension layer is attached.
+    {:ok, _} = Mayfly.Shutdown.start_link()
 
     case Mayfly.start_link() do
       {:ok, _pid} ->
