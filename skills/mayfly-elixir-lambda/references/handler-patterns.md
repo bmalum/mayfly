@@ -90,6 +90,14 @@ defmodule MyApp.Lambda, do: use Mayfly.Plug.Handler, plug: {MyAppWeb.Endpoint, [
 Phoenix: `server: false`, no `http:` block, bandit only in dev/test, no DNSCluster, SECRET_KEY_BASE/PHX_HOST as env vars.
 No LiveView/channels (WebSocket). Test: `mix lambda.invoke MyApp.Lambda '{}' --http --method GET --path /api/x`.
 
+## Platform telemetry (billed duration, max memory)
+
+Set `MAYFLY_EXTENSION=1` on the function (needs `{:telemetry, "~> 1.0"}`); then
+`Mayfly.Metrics.attach_platform_metrics("MyApp")` in `init/1` publishes Lambda's own
+Duration/BilledDuration/MaxMemoryUsed/InitDuration as EMF, or attach to
+`[:mayfly, :platform, :report]` yourself (measurements `duration_ms`, `billed_duration_ms`,
+`max_memory_used_mb`, `init_duration_ms`; metadata `request_id`). Arrives after the invocation.
+
 ## Metrics and idempotency
 
 ```elixir

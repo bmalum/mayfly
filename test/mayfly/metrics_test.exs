@@ -114,4 +114,64 @@ defmodule Mayfly.MetricsTest do
     assert hd(first["_aws"]["CloudWatchMetrics"])["Namespace"] == ns
     assert hd(first["_aws"]["CloudWatchMetrics"])["Dimensions"] == [["FunctionName"]]
   end
+
+  test "attach_platform_metrics publishes Lambda's own report numbers" do
+    {:ok, dev} = StringIO.open("")
+    ns = "P#{System.unique_integer([:positive])}"
+    assert :ok = Metrics.attach_platform_metrics(ns, device: dev)
+    on_exit(fn -> :telemetry.detach({Metrics, :platform, ns}) end)
+
+    # A cold-start report (with initDurationMs) and a warm one (without).
+    Mayfly.Extension.dispatch(%{
+      "time" => "t",
+      "type" => "platform.report",
+      "record" => %{
+        "requestId" => "r-cold",
+        "status" => "success",
+        "metrics" => %{
+          "durationMs" => 9.4,
+          "billedDurationMs" => 549,
+          "memorySizeMB" => 512,
+          "maxMemoryUsedMB" => 87,
+          "initDurationMs" => 539.2
+        }
+      }
+    })
+
+    Mayfly.Extension.dispatch(%{
+      "time" => "t",
+      "type" => "platform.report",
+      "record" => %{
+        "requestId" => "r-warm",
+        "status" => "error",
+        "metrics" => %{
+          "durationMs" => 3.1,
+          "billedDurationMs" => 4,
+          "memorySizeMB" => 512,
+          "maxMemoryUsedMB" => 88
+        }
+      }
+    })
+
+    {_, out} = StringIO.contents(dev)
+    [cold, warm] = out |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+
+    assert cold["Duration"] == 9.4 and cold["BilledDuration"] == 549 and
+             cold["InitDuration"] == 539.2
+
+    assert cold["MaxMemoryUsed"] == 87 and cold["MemorySize"] == 512
+    assert cold["requestId"] == "r-cold" and cold["status"] == "success"
+    refute Map.has_key?(warm, "InitDuration")
+    assert warm["Duration"] == 3.1 and warm["status"] == "error"
+
+    names =
+      hd(cold["_aws"]["CloudWatchMetrics"])["Metrics"] |> Enum.map(& &1["Name"]) |> Enum.sort()
+
+    assert names == ["BilledDuration", "Duration", "InitDuration", "MaxMemoryUsed", "MemorySize"]
+
+    assert Enum.find(
+             hd(cold["_aws"]["CloudWatchMetrics"])["Metrics"],
+             &(&1["Name"] == "MaxMemoryUsed")
+           )["Unit"] == "Megabytes"
+  end
 end

@@ -100,6 +100,59 @@ def handle([:mayfly, :invocation, :stop], %{duration: d}, %{result: r}, _) do
 end
 ```
 
+## Platform telemetry (Lambda Telemetry API)
+
+Lambda knows things about an invocation that the function cannot measure
+itself: the billed duration, the memory high-water mark, the init duration,
+whether the runtime timed out. The Telemetry API hands these to *extensions*.
+Mayfly ships an internal one, off by default:
+
+```bash
+MAYFLY_EXTENSION=1          # Lambda environment variable
+# or: config :mayfly, extension: true
+```
+
+At cold start `Mayfly.Extension` registers with the Extensions API (before the
+first `/next` poll, as Lambda requires), opens a small HTTP listener on
+`sandbox.localdomain` and subscribes to `platform` telemetry. Every record then
+becomes a `:telemetry` event `[:mayfly, :platform, type]` with the record's
+`metrics` as measurements:
+
+```elixir
+:telemetry.attach("billing", [:mayfly, :platform, :report], fn _event, m, meta, _ ->
+  Logger.info("request #{meta.request_id}: #{m.duration_ms} ms, billed #{m.billed_duration_ms} ms, #{m.max_memory_used_mb} MB")
+end, nil)
+```
+
+`type` is the record type without the `platform.` prefix, underscored:
+`:init_start`, `:init_runtime_done`, `:init_report`, `:start`, `:runtime_done`,
+`:report`, `:extension`, `:telemetry_subscription`, `:log_dropped`. Note that
+`platform.report` for an invocation arrives *after* that invocation has
+returned, so correlate by `request_id` rather than by the current invocation.
+
+Pair it with `Mayfly.Metrics.attach_platform_metrics/1` to publish the numbers
+as EMF metrics (`Duration`, `BilledDuration`, `MaxMemoryUsed`, `MemorySize`,
+`InitDuration` on cold starts), dimension `FunctionName`:
+
+```elixir
+def init(_opts) do
+  Mayfly.Metrics.attach_platform_metrics("MyApp")
+  {:ok, nil}
+end
+```
+
+Compared with `attach_invocation_metrics/1`, `Duration` is Lambda's own
+measurement and `BilledDuration` is what you pay for. Each record is also
+logged at `debug`; to see those lines set the function's
+`ApplicationLogLevel` to `DEBUG` (Lambda's log filter applies before yours).
+
+Limits: Lambda does not deliver `SHUTDOWN` to internal extensions
+(registering for it fails with `ShutdownEventNotSupportedForInternalExtension`),
+so there is no shutdown hook; that would require an external extension. Cost:
+one registration and one subscription call at init; measured cold start
+median 534 ms with the extension vs 527 ms without (arm64, 512 MB, 12/10
+samples), within the run-to-run noise.
+
 ## X-Ray
 
 Mayfly exports `_X_AMZN_TRACE_ID` from the invocation's trace header before

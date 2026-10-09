@@ -173,6 +173,56 @@ defmodule Mayfly.Metrics do
     )
   end
 
+  @doc """
+  Attaches a `:telemetry` handler to `[:mayfly, :platform, :report]` (emitted by
+  `Mayfly.Extension` when the extension is enabled) that publishes Lambda's
+  own numbers as EMF metrics under `namespace`, dimension `FunctionName`:
+  `Duration`, `BilledDuration`, `MaxMemoryUsed`, `MemorySize`, and
+  `InitDuration` when present (cold starts). Unlike
+  `attach_invocation_metrics/2`, `Duration` here is what Lambda measured and
+  `BilledDuration` is what you pay for. The report for an invocation arrives
+  after that invocation has finished, attributed by `requestId`.
+  """
+  @spec attach_platform_metrics(String.t(), keyword()) :: :ok | {:error, term()}
+  def attach_platform_metrics(namespace, opts \\ []) do
+    if Code.ensure_loaded?(:telemetry) do
+      apply(:telemetry, :attach, [
+        {__MODULE__, :platform, namespace},
+        [:mayfly, :platform, :report],
+        &__MODULE__.handle_platform_report/4,
+        %{namespace: namespace, device: Keyword.get(opts, :device, :stdio)}
+      ])
+    else
+      {:error, :telemetry_not_available}
+    end
+  end
+
+  @doc false
+  def handle_platform_report(_event, measurements, metadata, config) do
+    metrics =
+      %{
+        "Duration" => {measurements[:duration_ms], "Milliseconds"},
+        "BilledDuration" => {measurements[:billed_duration_ms], "Milliseconds"},
+        "MaxMemoryUsed" => {measurements[:max_memory_used_mb], "Megabytes"},
+        "MemorySize" => {measurements[:memory_size_mb], "Megabytes"},
+        "InitDuration" => {measurements[:init_duration_ms], "Milliseconds"}
+      }
+      |> Enum.reject(fn {_, {v, _}} -> is_nil(v) end)
+      |> Map.new()
+
+    if metrics != %{} do
+      emit(
+        config.namespace,
+        metrics,
+        dimensions: %{"FunctionName" => function_name(nil)},
+        properties: %{"requestId" => metadata[:request_id], "status" => metadata[:status]},
+        device: config.device
+      )
+    end
+
+    :ok
+  end
+
   defp function_name(%{env: %{function_name: name}}) when is_binary(name), do: name
   defp function_name(_), do: System.get_env("AWS_LAMBDA_FUNCTION_NAME") || "local"
 

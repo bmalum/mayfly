@@ -16,6 +16,9 @@ defmodule Mayfly do
     * `:runtime_api` – `host:port`; default `System.get_env("AWS_LAMBDA_RUNTIME_API")`
     * `:concurrency` – number of pollers; default `AWS_LAMBDA_MAX_CONCURRENCY` or 1
     * `:handler_opts` – passed to the handler's `init/1`; default `[]`
+    * `:extension` – register the internal Lambda extension (`Mayfly.Extension`:
+      platform telemetry as `:telemetry` events, log flush on SHUTDOWN); default
+      `MAYFLY_EXTENSION=1` or `config :mayfly, extension: true`, else off
     * `:api` – module implementing `Mayfly.RuntimeAPI` (tests)
   """
 
@@ -71,7 +74,14 @@ defmodule Mayfly.Supervisor do
 
         Supervisor.start_link(
           __MODULE__,
-          [api: api, endpoint: endpoint, handler: handler, concurrency: concurrency(opts)],
+          [
+            api: api,
+            endpoint: endpoint,
+            handler: handler,
+            concurrency: concurrency(opts),
+            extension: Mayfly.Extension.enabled?(opts),
+            extension_opts: Keyword.get(opts, :extension_opts, [])
+          ],
           name: Keyword.get(opts, :name, __MODULE__)
         )
 
@@ -89,11 +99,23 @@ defmodule Mayfly.Supervisor do
 
   @impl true
   def init(opts) do
-    children =
+    pollers =
       for slot <- 0..(opts[:concurrency] - 1) do
         {Mayfly.Poller,
          api: opts[:api], endpoint: opts[:endpoint], handler: opts[:handler], slot: slot}
       end
+
+    # The extension must be registered before the first /next poll (Lambda
+    # rejects internal extensions registering after init), so it comes first
+    # and registers synchronously in its init/1.
+    extension =
+      if opts[:extension],
+        do: [
+          {Mayfly.Extension, Keyword.put_new(opts[:extension_opts], :endpoint, opts[:endpoint])}
+        ],
+        else: []
+
+    children = extension ++ pollers
 
     # A poller only stops on a container error, in which case the whole
     # runtime must exit; hence the low restart budget.

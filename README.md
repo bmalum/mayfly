@@ -211,6 +211,7 @@ For a faithful emulation (timeouts, cold starts) use [aws-lambda-rie](https://gi
 - **Logs**: set the function's log format to JSON (advanced logging controls) and Mayfly emits `{"timestamp","level","requestId","tenantId","message",...}` lines via `Mayfly.LogFormatter`; `AWS_LAMBDA_LOG_LEVEL`/`LOGLEVEL` set the level. `request_id`, `tenant_id` and `trace_id` are in `Logger.metadata` during every invocation.
 - **Metrics**: `Mayfly.Metrics.count/4`, `timing/4`, `emit/3` write CloudWatch Embedded Metric Format lines (no API calls); `Mayfly.Metrics.attach_invocation_metrics/1` adds `Duration`, `Errors`, `ColdStart` per invocation.
 - **Telemetry** (optional dep): `[:mayfly, :init, :stop]`, `[:mayfly, :invocation, :start | :stop]`, `[:mayfly, :poll, :error]`.
+- **Platform telemetry**: `MAYFLY_EXTENSION=1` registers an internal Lambda extension that turns Telemetry API records into `[:mayfly, :platform, *]` events; `Mayfly.Metrics.attach_platform_metrics/1` publishes billed duration, max memory and init duration as metrics.
 - **X-Ray**: `_X_AMZN_TRACE_ID` is exported per invocation; errors carry an X-Ray cause header.
 
 See [guides/observability.md](guides/observability.md).

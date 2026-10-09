@@ -143,7 +143,7 @@ defmodule Mayfly.MixProject do
           Mayfly.RuntimeAPI,
           Mayfly.HTTP
         ],
-        Observability: [Mayfly.Metrics, Mayfly.Telemetry, Mayfly.LogFormatter],
+        Observability: [Mayfly.Metrics, Mayfly.Extension, Mayfly.Telemetry, Mayfly.LogFormatter],
         "Build & local dev": [
           Mayfly.Release,
           Mayfly.LocalRuntime,

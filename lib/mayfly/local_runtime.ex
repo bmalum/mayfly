@@ -35,7 +35,11 @@ defmodule Mayfly.LocalRuntime do
             waiting_pollers: :queue.new(),
             inflight: %{},
             init_error: nil,
-            counter: 0
+            counter: 0,
+            extensions: %{},
+            waiting_extensions: %{},
+            extension_events: %{},
+            telemetry_subscriptions: %{}
 
   # -- public API ---------------------------------------------------------------
 
@@ -63,6 +67,58 @@ defmodule Mayfly.LocalRuntime do
   @doc "The payload posted to `/runtime/init/error`, if any."
   @spec init_error(GenServer.server()) :: map() | nil
   def init_error(rt), do: GenServer.call(rt, :init_error)
+
+  @doc "Registered extensions: `%{identifier => %{name: ..., events: [...]}}`."
+  @spec extensions(GenServer.server()) :: map()
+  def extensions(rt), do: GenServer.call(rt, :extensions)
+
+  @doc "Telemetry subscriptions by extension identifier (the decoded PUT body)."
+  @spec telemetry_subscriptions(GenServer.server()) :: map()
+  def telemetry_subscriptions(rt), do: GenServer.call(rt, :telemetry_subscriptions)
+
+  @doc """
+  Delivers telemetry records to every subscribed extension the way Lambda
+  does: an HTTP POST of a JSON array to the subscription's destination URI.
+  Returns the list of HTTP status codes received.
+  """
+  @spec push_telemetry(GenServer.server(), [map()]) :: [integer() | {:error, term()}]
+  def push_telemetry(rt, records) when is_list(records) do
+    body = JSON.encode!(records)
+
+    for {_id, %{"destination" => %{"URI" => uri}}} <- telemetry_subscriptions(rt) do
+      %URI{host: host, port: port, path: path} = URI.parse(uri)
+      host = if host == "sandbox.localdomain", do: "127.0.0.1", else: host
+
+      case Mayfly.HTTP.post(
+             {host, port},
+             path || "/",
+             [{"content-type", "application/json"}],
+             body,
+             timeout: 5_000
+           ) do
+        {:ok, %{status: status}} -> status
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  Sends a SHUTDOWN event to every registered extension (regardless of the
+  events it subscribed to; real Lambda only delivers SHUTDOWN to external
+  extensions, this is a test aid).
+  """
+  @spec shutdown(GenServer.server(), String.t()) :: :ok
+  def shutdown(rt, reason \\ "spindown") do
+    GenServer.call(
+      rt,
+      {:extension_event,
+       %{
+         "eventType" => "SHUTDOWN",
+         "shutdownReason" => reason,
+         "deadlineMs" => System.system_time(:millisecond) + 2_000
+       }}
+    )
+  end
 
   # -- server -------------------------------------------------------------------
 
@@ -115,14 +171,91 @@ defmodule Mayfly.LocalRuntime do
   def handle_call({:init_error, payload}, _from, state),
     do: {:reply, :ok, %{state | init_error: payload}}
 
+  def handle_call(:extensions, _from, state), do: {:reply, state.extensions, state}
+
+  def handle_call(:telemetry_subscriptions, _from, state),
+    do: {:reply, state.telemetry_subscriptions, state}
+
+  def handle_call({:register_extension, name, events}, _from, state) do
+    id = "ext-#{map_size(state.extensions) + 1}-#{System.unique_integer([:positive])}"
+    extensions = Map.put(state.extensions, id, %{name: name, events: events})
+    {:reply, {:ok, id}, %{state | extensions: extensions}}
+  end
+
+  def handle_call({:subscribe_telemetry, id, body}, _from, state) do
+    if Map.has_key?(state.extensions, id) do
+      {:reply, :ok,
+       %{state | telemetry_subscriptions: Map.put(state.telemetry_subscriptions, id, body)}}
+    else
+      {:reply, {:error, :unknown_extension}, state}
+    end
+  end
+
+  # An extension connection waits for its next event.
+  def handle_call({:extension_next, id, conn}, _from, state) do
+    if Map.has_key?(state.extensions, id) do
+      state = %{state | waiting_extensions: Map.put(state.waiting_extensions, id, conn)}
+      {:reply, :ok, dispatch_extension_events(state)}
+    else
+      {:reply, {:error, :unknown_extension}, state}
+    end
+  end
+
+  # Queue an event (SHUTDOWN, or INVOKE from dispatch/1) for every registered extension.
+  def handle_call({:extension_event, event}, _from, state) do
+    {:reply, :ok, queue_extension_event(state, event)}
+  end
+
   defp dispatch(state) do
     with {{:value, conn}, pollers} <- :queue.out(state.waiting_pollers),
          {{:value, invocation}, queue} <- :queue.out(state.queue) do
       send(conn, {:invocation, invocation})
+
+      state =
+        queue_extension_event(state, %{
+          "eventType" => "INVOKE",
+          "requestId" => invocation.request_id,
+          "deadlineMs" => invocation.deadline_ms,
+          "invokedFunctionArn" => "arn:aws:lambda:local:000000000000:function:local",
+          "tracing" => %{
+            "type" => "X-Amzn-Trace-Id",
+            "value" => "Root=1-local-#{invocation.invocation_id};Sampled=0"
+          }
+        })
+
       dispatch(%{state | waiting_pollers: pollers, queue: queue})
     else
       _ -> state
     end
+  end
+
+  defp queue_extension_event(state, event) do
+    events =
+      Enum.reduce(state.extensions, state.extension_events, fn {id, %{events: subscribed}}, acc ->
+        if event["eventType"] == "SHUTDOWN" or event["eventType"] in subscribed,
+          do: Map.update(acc, id, :queue.from_list([event]), &:queue.in(event, &1)),
+          else: acc
+      end)
+
+    dispatch_extension_events(%{state | extension_events: events})
+  end
+
+  defp dispatch_extension_events(state) do
+    Enum.reduce(state.waiting_extensions, state, fn {id, conn}, acc ->
+      case :queue.out(Map.get(acc.extension_events, id, :queue.new())) do
+        {{:value, event}, rest} ->
+          send(conn, {:extension_event, event})
+
+          %{
+            acc
+            | waiting_extensions: Map.delete(acc.waiting_extensions, id),
+              extension_events: Map.put(acc.extension_events, id, rest)
+          }
+
+        {:empty, _} ->
+          acc
+      end
+    end)
   end
 
   # -- connection handling (one process per TCP connection) -------------------------
@@ -189,8 +322,66 @@ defmodule Mayfly.LocalRuntime do
     respond(socket, 202, [], ~s({"status":"OK"}))
   end
 
+  # -- Extensions API + Telemetry API -------------------------------------------------
+
+  defp route(:post, "/2020-01-01/extension/register", headers, {:ok, data, _}, socket, server) do
+    name = header(headers, "lambda-extension-name") || "unnamed"
+    events = (JSON.decode!(data)["events"] || []) |> Enum.map(&to_string/1)
+    {:ok, id} = GenServer.call(server, {:register_extension, name, events})
+
+    respond(
+      socket,
+      200,
+      [{"Lambda-Extension-Identifier", id}],
+      JSON.encode!(%{
+        "functionName" => "local",
+        "functionVersion" => "$LATEST",
+        "handler" => System.get_env("_HANDLER") || ""
+      })
+    )
+  end
+
+  defp route(:get, "/2020-01-01/extension/event/next", headers, _b, socket, server) do
+    id = header(headers, "lambda-extension-identifier")
+
+    case GenServer.call(server, {:extension_next, id, self()}) do
+      :ok ->
+        receive do
+          {:extension_event, event} -> respond(socket, 200, [], JSON.encode!(event))
+        end
+
+      {:error, :unknown_extension} ->
+        respond(socket, 403, [], ~s({"errorType":"Extension.InvalidExtensionIdentifier"}))
+    end
+  end
+
+  defp route(:put, "/2022-07-01/telemetry", headers, {:ok, data, _}, socket, server) do
+    id = header(headers, "lambda-extension-identifier")
+
+    with {:ok, body} <- JSON.decode(data),
+         %{"schemaVersion" => "2022-07-01", "destination" => %{"URI" => "http://" <> _}} <- body,
+         :ok <- GenServer.call(server, {:subscribe_telemetry, id, body}) do
+      respond(socket, 200, [], ~s("OK"))
+    else
+      {:error, :unknown_extension} ->
+        respond(socket, 403, [], ~s({"errorType":"Extension.InvalidExtensionIdentifier"}))
+
+      _ ->
+        respond(
+          socket,
+          400,
+          [],
+          ~s({"errorType":"ValidationError","errorMessage":"invalid subscription"})
+        )
+    end
+  end
+
   defp route(_method, path, _h, _b, socket, _server) do
     respond(socket, 404, [], ~s({"errorMessage":"unknown path #{path}"}))
+  end
+
+  defp header(headers, name) do
+    Enum.find_value(headers, fn {k, v} -> String.downcase(k) == name && v end)
   end
 
   defp decode_error(data) do

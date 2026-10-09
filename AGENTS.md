@@ -50,6 +50,7 @@ lib/mayfly/error_payload.ex error documents, header_type/1, X-Ray cause
 lib/mayfly/context.ex      per-invocation metadata from headers
 lib/mayfly/log_formatter.ex JSON log lines for AWS_LAMBDA_LOG_FORMAT=JSON
 lib/mayfly/telemetry.ex    optional :telemetry wrapper
+lib/mayfly/extension.ex    opt-in internal extension: Telemetry API -> [:mayfly, :platform, *] events
 lib/mayfly/release.ex      release steps prepare/1, bootstrap/1, zip/1
 lib/mayfly/local_runtime.ex Runtime API emulator (tests, mix lambda.invoke)
 lib/mix/tasks/lambda.{build,invoke,doctor}.ex   build: zip (native/--docker) or --image (+ --push to ECR)

@@ -38,6 +38,14 @@ defmodule Mayfly.HTTP do
     request({host, port}, "POST", path, headers, body, opts)
   end
 
+  @doc "`PUT path` with a complete body (`Content-Length`)."
+  @spec put({String.t(), :inet.port_number()}, String.t(), [header()], iodata(), keyword()) ::
+          {:ok, response()} | {:error, term()}
+  def put({host, port}, path, headers, body, opts \\ []) do
+    headers = [{"content-length", body |> IO.iodata_length() |> Integer.to_string()} | headers]
+    request({host, port}, "PUT", path, headers, body, opts)
+  end
+
   @doc """
   `POST path` with `Transfer-Encoding: chunked`. `chunks` is an enumerable of
   iodata; it is consumed lazily and each element is written as one chunk.

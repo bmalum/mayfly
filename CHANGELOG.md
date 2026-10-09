@@ -50,6 +50,14 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `Mayfly.Extension` (opt-in, `MAYFLY_EXTENSION=1`): internal Lambda extension
+  that subscribes to the Telemetry API and emits `[:mayfly, :platform, type]`
+  `:telemetry` events with the record metrics; `Mayfly.Metrics.attach_platform_metrics/2`
+  publishes `Duration`, `BilledDuration`, `MaxMemoryUsed`, `MemorySize`,
+  `InitDuration` as EMF. `Mayfly.LocalRuntime` emulates the Extensions and
+  Telemetry APIs (`push_telemetry/2`, `shutdown/2`). `Mayfly.HTTP.put/5`.
+  Verified on Lambda; no measurable cold-start cost. Lambda does not deliver
+  SHUTDOWN to internal extensions, so there is no shutdown hook.
 - `mix lambda.new PATH [--iac sam|terraform|cdk] [--arch] [--otp] [--region]`:
   generates a project (handler with HTTP branch, release config,
   `.tool-versions` pinned to the layer's OTP from the catalog, LocalRuntime
