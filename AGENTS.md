@@ -146,7 +146,10 @@ execute it, append your validation log, update the status table.
 
 ## Known gaps / ideas
 
-- Elixir precompiled layer (separate version axis; deliberately not done).
+- Elixir precompiled layer: built, measured (2026-10-09) and not shipped;
+  numbers and reasoning in `guides/layers.md`, prototype in
+  `.goals/05-elixir-layer-experiment.patch` (local) and commit `d6673da`
+  (`layer/build-elixir.sh`).
 - `mix lambda.build` still uses `mix release` under the hood only; a
   `--deploy` step is intentionally out of scope (use the AWS CLI / IaC).
 - Durable Functions SDK for Elixir would be a separate library on top of

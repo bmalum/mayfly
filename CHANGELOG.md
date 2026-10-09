@@ -85,6 +85,14 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
 - `Mayfly.Boot.main/0` explicit entry point; `Mayfly.start_link/1` public API.
 - `Runtime.InitError`, `Runtime.InvalidEvent` error types.
 
+### Considered and not shipped
+
+- An Elixir layer (`mayfly-elixir-<vsn>-otp-<major>`, zip 0.16 MB instead of
+  1.6 MB). Measured on Lambda: cold start median 511 ms vs 543 ms with the
+  ERTS layer alone (21 forced cold starts each, arm64, 512 MB), p90 541 vs
+  709 ms, deploy upload about one second faster. Below the 50 ms bar for a
+  second version axis; see "Why there is no Elixir layer" in the layers guide.
+
 ### Changed
 - Requires Elixir 1.18+; uses the built-in `JSON` module. Jason removed.
 - `Mayfly.HTTP` (`:gen_tcp`) replaces `:httpc`; `:inets`/`:ssl` no longer
