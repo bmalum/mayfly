@@ -50,6 +50,14 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
   partial-batch helpers for SQS, Kinesis and DynamoDB; `Mayfly.Events.decode/1`
   dispatcher. Verified on Lambda with a Function URL, SQS
   `ReportBatchItemFailures`, S3 notifications, EventBridge and DynamoDB Streams.
+- `mix lambda.new --http-api`: API Gateway HTTP API (`$default` route, JSON
+  access logs, permission) in the SAM, Terraform and CDK templates; deployed
+  and exercised on Lambda.
+- `mix lambda.doctor` reads the IaC files `mix lambda.new` generates and
+  checks OTP major, selected layer ARN, architecture and runtime against the
+  toolchain.
+- Guides: new `operations.md` (alarms, Logs Insights queries, cost, Managed
+  Instances sizing, runbook) and `iac.md` (split out of the deployment guide).
 - `Mayfly.Shutdown` + the `mayfly-shutdown` external extension layer: with the
   layer attached Lambda sends SIGTERM before discarding the environment; Mayfly
   emits `[:mayfly, :shutdown]`, runs registered hooks (1 s each), flushes

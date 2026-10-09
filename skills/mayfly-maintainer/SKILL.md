@@ -96,7 +96,8 @@ publishing (`layer/render-templates.sh /tmp/site/data/layers.json`) and commits
 to `main` when they changed. Manually: `layer/render-templates.sh` (fetches the
 catalog with curl; prints `changed`/`unchanged`). Keys are
 `otp<major><arch>` with `x86_64` as `x8664` (CloudFormation mapping keys must be
-alphanumeric). Smoke-test after editing: `mix lambda.new /tmp/t --iac sam && cd /tmp/t && sam validate --lint`
+alphanumeric). Blocks between `mayfly-http-api:begin/end` are kept only with `--http-api`.
+Smoke-test after editing: `mix lambda.new /tmp/t --iac sam --http-api && cd /tmp/t && sam validate --lint && mix lambda.doctor`
 (needs `--mayfly path:...` when run from the checkout).
 
 ### Rules

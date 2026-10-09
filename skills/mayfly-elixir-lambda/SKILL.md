@@ -35,7 +35,7 @@ Facts an agent must not get wrong:
 
 ## Workflow
 
-Fastest start: `mix lambda.new NAME [--iac sam|terraform|cdk] [--arch arm64|x86_64] [--otp 27|28|29]`
+Fastest start: `mix lambda.new NAME [--iac sam|terraform|cdk] [--http-api] [--arch arm64|x86_64] [--otp 27|28|29]`
 (available wherever `mayfly` is a dependency, or from a Mayfly checkout) generates the
 project, handler, test, `.tool-versions` matching the public layer, and deployable IaC.
 Then `cd NAME && mix deps.get && mix test && mix lambda.invoke NAME.Handler '{}'`.
@@ -108,6 +108,7 @@ Then `cd NAME && mix deps.get && mix test && mix lambda.invoke NAME.Handler '{}'
 ## Reference material
 
 - `references/handler-patterns.md` – event shapes, errors, streaming, Plug/Phoenix (`mayfly_plug`), metrics, idempotency (`mayfly_aws`), Managed Instances, config.
+- Operating a function (alarms, Logs Insights queries, cost, runbook): `guides/operations.md` in the mayfly repo / https://elixir-aws-lambda.dev/docs/operations.
 - Event decoders guide: https://elixir-aws-lambda.dev/docs/events.md
 - `references/testing.md` – `Mayfly.LocalRuntime` in ExUnit, `mix lambda.invoke`.
 - Full docs, agent-friendly index: https://elixir-aws-lambda.dev/docs/llms.txt

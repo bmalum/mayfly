@@ -104,6 +104,8 @@ defmodule Mayfly.MixProject do
         "guides/getting-started.md",
         "guides/events.md",
         "guides/deployment.md",
+        "guides/iac.md",
+        "guides/operations.md",
         "guides/layers.md",
         "guides/architecture.md",
         "guides/streaming.md",

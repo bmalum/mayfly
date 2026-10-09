@@ -11,7 +11,7 @@
 > **Shortcut:** `mix lambda.new hello --iac sam` (from any project that has
 > `mayfly` in its deps, or a Mayfly checkout) generates everything in steps 1–3
 > plus a SAM, Terraform or CDK definition; see the
-> [deployment guide](deployment.md#infrastructure-as-code). The steps below
+> [IaC guide](iac.md). The steps below
 > show what it generates.
 
 ```elixir
