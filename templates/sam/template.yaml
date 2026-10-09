@@ -210,6 +210,46 @@ Resources:
         Variables:
           LOGLEVEL: info
 
+  # mayfly-http-api:begin
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","method":"$context.httpMethod","path":"$context.path","status":"$context.status","latency":"$context.responseLatency","integrationError":"$context.integrationErrorMessage"}'
+
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/apigateway/${FunctionName}
+      RetentionInDays: !Ref LogRetentionDays
+
+  ApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: $default
+      Target: !Sub integrations/${ApiIntegration}
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt Function.Arn
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 30000
+  # mayfly-http-api:end
+
   LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -221,6 +261,10 @@ Outputs:
     Value: !GetAtt Function.Arn
   FunctionUrl:
     Value: !GetAtt FunctionUrl.FunctionUrl
+  # mayfly-http-api:begin
+  HttpApiUrl:
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/
+  # mayfly-http-api:end
   LayerArn:
     Value: !If
       - IsArm64

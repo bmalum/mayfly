@@ -24,6 +24,26 @@ defmodule Mix.Tasks.Lambda.NewTest do
     assert out == "hello-app HelloApp.Handler arm64 28 eu-west-1 HelloAppStack"
   end
 
+  test "http_api_blocks/2 keeps or strips marked blocks in YAML, HCL and TS comment styles" do
+    yaml = "a\n  # mayfly-http-api:begin\n  Api: x\n  # mayfly-http-api:end\nb\n"
+    ts = "a\n// mayfly-http-api:begin\nconst api = 1;\n// mayfly-http-api:end\nb\n"
+    assert New.http_api_blocks(yaml, false) == "a\nb\n"
+    assert New.http_api_blocks(yaml, true) == "a\n  Api: x\nb\n"
+    assert New.http_api_blocks(ts, false) == "a\nb\n"
+    assert New.http_api_blocks(ts, true) == "a\nconst api = 1;\nb\n"
+  end
+
+  test "templates carry http-api blocks in all three flavours" do
+    dir = New.templates_dir()
+
+    for f <- ["sam/template.yaml", "terraform/main.tf", "cdk/bin/app.ts"] do
+      content = File.read!(Path.join(dir, f))
+      assert content =~ "mayfly-http-api:begin", f
+      refute New.http_api_blocks(content, false) =~ ~r/HttpApi|apigatewayv2/, f
+      assert New.http_api_blocks(content, true) =~ ~r/HttpApi|apigatewayv2/, f
+    end
+  end
+
   test "templates ship with rendered layer maps for every public region" do
     dir = New.templates_dir()
 

@@ -75,6 +75,57 @@ resource "aws_lambda_function_url" "this" {
   invoke_mode        = var.function_url_invoke_mode
 }
 
+# mayfly-http-api:begin
+resource "aws_apigatewayv2_api" "http" {
+  name          = var.function_name
+  protocol_type = "HTTP"
+  tags          = var.tags
+}
+
+resource "aws_cloudwatch_log_group" "api" {
+  name              = "/aws/apigateway/${var.function_name}"
+  retention_in_days = var.log_retention_days
+  tags              = var.tags
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.http.id
+  name        = "$default"
+  auto_deploy = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api.arn
+    format          = jsonencode({ requestId = "$context.requestId", ip = "$context.identity.sourceIp", method = "$context.httpMethod", path = "$context.path", status = "$context.status", latency = "$context.responseLatency", integrationError = "$context.integrationErrorMessage" })
+  }
+
+  tags = var.tags
+}
+
+resource "aws_apigatewayv2_integration" "lambda" {
+  api_id                 = aws_apigatewayv2_api.http.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.this.invoke_arn
+  payload_format_version = "2.0"
+  timeout_milliseconds   = 30000
+}
+
+resource "aws_apigatewayv2_route" "default" {
+  api_id    = aws_apigatewayv2_api.http.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+}
+
+resource "aws_lambda_permission" "api" {
+  statement_id  = "AllowApiGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.this.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.http.execution_arn}/*"
+}
+
+output "http_api_url" { value = aws_apigatewayv2_stage.default.invoke_url }
+# mayfly-http-api:end
+
 output "function_arn" { value = aws_lambda_function.this.arn }
 output "function_url" { value = var.function_url ? aws_lambda_function_url.this[0].function_url : null }
 output "layer_arn" { value = local.layer_arn }

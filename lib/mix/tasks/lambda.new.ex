@@ -30,6 +30,8 @@ defmodule Mix.Tasks.Lambda.New do
   ## Options
 
       --iac       sam | terraform | cdk | none (default none)
+      --http-api  add an API Gateway HTTP API (`$default` route, access logs) in
+                  front of the function; without it the IaC creates a Function URL only
       --arch      arm64 (default) | x86_64
       --otp       27 (default) | 28 | 29 – OTP major of the layer and the toolchain
       --region    AWS region for the IaC defaults (default $AWS_REGION or eu-central-1)
@@ -49,6 +51,7 @@ defmodule Mix.Tasks.Lambda.New do
     region: :string,
     module: :string,
     mayfly: :string,
+    http_api: :boolean,
     help: :boolean
   ]
   @iacs ~w(sam terraform cdk none)
@@ -107,6 +110,7 @@ defmodule Mix.Tasks.Lambda.New do
       region: region,
       layer_arn: layer_arn,
       iac: iac,
+      http_api: Keyword.get(opts, :http_api, false),
       mayfly_dep: mayfly_dep(Keyword.get(opts, :mayfly))
     }
 
@@ -355,7 +359,7 @@ defmodule Mix.Tasks.Lambda.New do
     sam delete       # tear down
     ```
 
-    `template.yaml` resolves the Mayfly layer for the deployment region from its `Mappings`
+    #{if a.http_api, do: "The stack output `HttpApiUrl` is the API Gateway endpoint (`$default` route → function).\n", else: ""}`template.yaml` resolves the Mayfly layer for the deployment region from its `Mappings`
     (parameter `OtpMajor` must match the OTP your release was built with).
     """
   end
@@ -372,7 +376,7 @@ defmodule Mix.Tasks.Lambda.New do
     terraform destroy -auto-approve
     ```
 
-    `infra/locals.tf` holds the Mayfly layer ARNs per region; `var.layer_arn` overrides them.
+    #{if a.http_api, do: "Output `http_api_url` is the API Gateway endpoint.\n", else: ""}`infra/locals.tf` holds the Mayfly layer ARNs per region; `var.layer_arn` overrides them.
     """
   end
 
@@ -390,7 +394,7 @@ defmodule Mix.Tasks.Lambda.New do
     npx cdk destroy --force
     ```
 
-    `infra/lib/mayfly-function.ts` is a `MayflyFunction` construct (a `lambda.Function` with the
+    #{if a.http_api, do: "Output `HttpApiUrl` is the API Gateway endpoint.\n", else: ""}`infra/lib/mayfly-function.ts` is a `MayflyFunction` construct (a `lambda.Function` with the
     right runtime, architecture, layer, JSON logs and tracing); `MayflyFunction.layerArn/3` resolves ARNs.
     """
   end
@@ -417,12 +421,25 @@ defmodule Mix.Tasks.Lambda.New do
   @doc false
   def render(content, a) do
     content
+    |> http_api_blocks(Map.get(a, :http_api, false))
     |> String.replace("__FUNCTION_NAME__", a.function_name)
     |> String.replace("__HANDLER__", "#{a.module}.Handler")
     |> String.replace("__ARCH__", a.arch)
     |> String.replace("__OTP__", a.otp)
     |> String.replace("__REGION__", a.region)
     |> String.replace("__STACK_CLASS__", "#{a.module}Stack")
+  end
+
+  # Blocks between `mayfly-http-api:begin/end` markers (any comment syntax) are
+  # kept with --http-api (markers removed) and dropped otherwise.
+  @doc false
+  def http_api_blocks(content, keep?) do
+    pattern =
+      ~r/^[ \t]*(?:#|\/\/)[ \t]*mayfly-http-api:begin[^\n]*\n(.*?)^[ \t]*(?:#|\/\/)[ \t]*mayfly-http-api:end[^\n]*\n/ms
+
+    if keep?,
+      do: Regex.replace(pattern, content, fn _, inner -> inner end),
+      else: Regex.replace(pattern, content, "")
   end
 
   @doc false
