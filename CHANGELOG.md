@@ -125,6 +125,32 @@ A redesign. See `guides/migrating-from-0.x.md` for the upgrade path.
 - `Mayfly.Boot.main/0` explicit entry point; `Mayfly.start_link/1` public API.
 - `Runtime.InitError`, `Runtime.InvalidEvent` error types.
 
+### Fixed (pre-release review, 2026-10-10)
+
+- Each invocation runs in its own monitored process: a linked process dying or
+  `Process.exit/2` from handler code is reported to Lambda as an `Exit` error
+  instead of killing the poller and timing the invocation out.
+- Error reports can no longer fail themselves: non-UTF-8 `errorMessage`/`errorType`
+  are inspected, list bodies are validated as iodata, and a last-resort catch
+  reports `Runtime.Unknown`. Error types with `Runtime.`/`Function.` prefixes are
+  sanitised for the header; stack traces are trimmed at the handler boundary only.
+- `Mayfly.Response.stream/2`'s `send_timeout` is honoured (it was stored but not
+  passed on). Encode failures count as errors in telemetry.
+- `Mayfly.Boot` only sets the log level when `LOGLEVEL`/`AWS_LAMBDA_LOG_LEVEL`
+  is set, and reports application start failures via `/init/error`.
+- `init/1` is only called on `Mayfly.Handler` modules, not legacy `Module.function` handlers.
+- `rel/overlays` keeps working alongside Mayfly's release templates; `--docker`
+  builds pass the toolchain's OTP/Elixir as build args so layer-mode releases match
+  the public layer; container images no longer include `lambda.zip`.
+- ALB `source_ip` is the last `X-Forwarded-For` hop; v2 responses join list-valued headers.
+- `Mayfly.Extension` retries `/event/next` with backoff and halts after repeated
+  failures instead of leaving invocations to time out; the listener binds to
+  loopback; the accept loop survives transient errors.
+- `Mayfly.Shutdown` bounds all hooks by a 1.2 s deadline; `register/1` is a
+  no-op outside Lambda.
+- Hex package excludes `layer/dist` and `priv/plts`, ships only the user skill,
+  and the publish workflow refuses packages over 2 MB.
+
 ### Considered and not shipped
 
 - An Elixir layer (`mayfly-elixir-<vsn>-otp-<major>`, zip 0.16 MB instead of
