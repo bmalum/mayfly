@@ -62,9 +62,9 @@ defmodule Mayfly.Boot do
   end
 
   defp start_applications do
-    # The release's applications list is in :included/:applications order; the
-    # user's app is the one that depends on :mayfly. Starting :mayfly's own
-    # dependents is enough to bring up everything the release contains.
+    # Every application the release loaded is started (the release's start
+    # types are not consulted: a Lambda function has no reason to keep an
+    # application loaded but stopped). :mayfly itself has no application callback.
     Enum.reduce_while(Application.loaded_applications(), :ok, fn
       {:mayfly, _, _}, acc ->
         {:cont, acc}
@@ -89,6 +89,10 @@ defmodule Mayfly.Boot do
   defp start_shutdown do
     case Mayfly.Shutdown.start_link() do
       {:ok, _} ->
+        :ok
+
+      # The application supervises Mayfly.Shutdown itself: fine, use that one.
+      {:error, {:already_started, _pid}} ->
         :ok
 
       {:error, reason} ->

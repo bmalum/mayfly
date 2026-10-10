@@ -102,6 +102,10 @@ defmodule Mayfly.LocalRuntime do
     end
   end
 
+  @doc false
+  # Test aid: make every /extension/event/next request fail with 500 from now on.
+  def break_extension_events(rt), do: GenServer.call(rt, :break_extension_events)
+
   @doc """
   Sends a SHUTDOWN event to every registered extension (regardless of the
   events it subscribed to; real Lambda only delivers SHUTDOWN to external
@@ -173,6 +177,11 @@ defmodule Mayfly.LocalRuntime do
 
   def handle_call(:extensions, _from, state), do: {:reply, state.extensions, state}
 
+  def handle_call(:break_extension_events, _from, state) do
+    for {_id, conn} <- state.waiting_extensions, do: send(conn, :broken)
+    {:reply, :ok, %{state | extension_events: :broken, waiting_extensions: %{}}}
+  end
+
   def handle_call(:telemetry_subscriptions, _from, state),
     do: {:reply, state.telemetry_subscriptions, state}
 
@@ -192,6 +201,9 @@ defmodule Mayfly.LocalRuntime do
   end
 
   # An extension connection waits for its next event.
+  def handle_call({:extension_next, _id, _conn}, _from, %{extension_events: :broken} = state),
+    do: {:reply, :broken, state}
+
   def handle_call({:extension_next, id, conn}, _from, state) do
     if Map.has_key?(state.extensions, id) do
       state = %{state | waiting_extensions: Map.put(state.waiting_extensions, id, conn)}
@@ -348,7 +360,11 @@ defmodule Mayfly.LocalRuntime do
       :ok ->
         receive do
           {:extension_event, event} -> respond(socket, 200, [], JSON.encode!(event))
+          :broken -> respond(socket, 500, [], ~s({"errorType":"InternalServerError"}))
         end
+
+      :broken ->
+        respond(socket, 500, [], ~s({"errorType":"InternalServerError"}))
 
       {:error, :unknown_extension} ->
         respond(socket, 403, [], ~s({"errorType":"Extension.InvalidExtensionIdentifier"}))

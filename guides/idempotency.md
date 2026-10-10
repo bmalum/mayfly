@@ -8,8 +8,8 @@ happen once.
 `Mayfly.Idempotency` from the companion package
 [`mayfly_aws`](https://github.com/bmalum/mayfly_aws) gives a handler
 exactly-once semantics backed by a DynamoDB table. It lives outside the core
-package so the runtime stays free of `:ssl`; it starts `:inets`/`:ssl` lazily
-on first use (~60–80 ms once per execution environment).
+package so the runtime stays free of `:ssl`; `:inets`/`:ssl` start with the
+function (~20 ms once per execution environment).
 
 ```elixir
 # mix.exs

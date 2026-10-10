@@ -151,7 +151,12 @@ defmodule Mayfly.Events.HTTP do
   with `isBase64Encoded`.
   """
   @spec respond(100..599, term(), target(), keyword()) :: {:ok, map()}
-  def respond(status, body, target \\ :v2, opts \\ []) do
+  def respond(status, body, target \\ :v2, opts \\ [])
+
+  # `respond(200, body, headers: ...)` – a keyword list in the target position is the options.
+  def respond(status, body, opts, []) when is_list(opts), do: respond(status, body, :v2, opts)
+
+  def respond(status, body, target, opts) do
     version = version(target)
     headers = opts |> Keyword.get(:headers, %{}) |> Map.new(fn {k, v} -> {to_string(k), v} end)
     base64? = Keyword.get(opts, :base64, false)
@@ -189,7 +194,10 @@ defmodule Mayfly.Events.HTTP do
 
   @doc "JSON response."
   @spec json(100..599, term(), target(), keyword()) :: {:ok, map()}
-  def json(status, term, target \\ :v2, opts \\ []) do
+  def json(status, term, target \\ :v2, opts \\ [])
+  def json(status, term, opts, []) when is_list(opts), do: json(status, term, :v2, opts)
+
+  def json(status, term, target, opts) do
     headers = opts |> Keyword.get(:headers, %{}) |> Map.new(fn {k, v} -> {to_string(k), v} end)
     headers = Map.put_new(headers, "content-type", "application/json; charset=utf-8")
     respond(status, JSON.encode!(term), target, Keyword.put(opts, :headers, headers))
@@ -197,7 +205,10 @@ defmodule Mayfly.Events.HTTP do
 
   @doc "Plain text response."
   @spec text(100..599, String.t(), target(), keyword()) :: {:ok, map()}
-  def text(status, text, target \\ :v2, opts \\ []) do
+  def text(status, text, target \\ :v2, opts \\ [])
+  def text(status, text, opts, []) when is_list(opts), do: text(status, text, :v2, opts)
+
+  def text(status, text, target, opts) do
     headers = opts |> Keyword.get(:headers, %{}) |> Map.new(fn {k, v} -> {to_string(k), v} end)
     headers = Map.put_new(headers, "content-type", "text/plain; charset=utf-8")
     respond(status, text, target, Keyword.put(opts, :headers, headers))
@@ -219,9 +230,21 @@ defmodule Mayfly.Events.HTTP do
 
   @doc "Redirect (302 by default)."
   @spec redirect(String.t(), target(), keyword()) :: {:ok, map()}
-  def redirect(location, target \\ :v2, opts \\ []) do
+  def redirect(location, target \\ :v2, opts \\ [])
+  def redirect(location, opts, []) when is_list(opts), do: redirect(location, :v2, opts)
+
+  def redirect(location, target, opts) do
     status = Keyword.get(opts, :status, 302)
-    respond(status, "", target, headers: %{"location" => location})
+    headers = opts |> Keyword.get(:headers, %{}) |> Map.new(fn {k, v} -> {to_string(k), v} end)
+
+    respond(
+      status,
+      "",
+      target,
+      opts
+      |> Keyword.delete(:status)
+      |> Keyword.put(:headers, Map.put(headers, "location", location))
+    )
   end
 
   # -- private ------------------------------------------------------------------

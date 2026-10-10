@@ -28,7 +28,7 @@ fields. During an invocation Mayfly sets `request_id`, `tenant_id` and
 
 `AWS_LAMBDA_LOG_LEVEL` (set by the *Application log level* setting) or
 `LOGLEVEL` (`debug | info | warning | error`) controls the Logger level.
-Default is `info`.
+Without either variable the level configured by your application stands (`LOGLEVEL` takes precedence).
 
 ### Plain text
 

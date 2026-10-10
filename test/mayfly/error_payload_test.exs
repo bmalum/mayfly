@@ -93,4 +93,18 @@ defmodule Mayfly.ErrorPayloadTest do
     assert %{"exceptions" => [%{"type" => "RuntimeError", "stack" => [_]}]} =
              payload |> ErrorPayload.xray_cause() |> JSON.encode!() |> JSON.decode!()
   end
+
+  test "oversized and non-UTF-8 messages are made safe for JSON" do
+    big = String.duplicate("é", 40_000)
+    %{errorMessage: msg} = Mayfly.ErrorPayload.from_term(big, [])
+    assert String.valid?(msg) and String.ends_with?(msg, "(truncated)")
+    assert byte_size(msg) < byte_size(big)
+    assert JSON.encode!(msg)
+
+    %{errorType: type, errorMessage: m2} =
+      Mayfly.ErrorPayload.from_term(%{"errorType" => <<255>>, "errorMessage" => <<254>>}, [])
+
+    assert type == "<<255>>" and m2 == "<<254>>"
+    assert JSON.encode!(%{errorType: type, errorMessage: m2})
+  end
 end

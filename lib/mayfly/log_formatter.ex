@@ -9,7 +9,7 @@ defmodule Mayfly.LogFormatter do
   `Mayfly.Boot` installs it when `AWS_LAMBDA_LOG_FORMAT=JSON`. To use it
   yourself:
 
-      config :logger, :default_formatter, {Mayfly.LogFormatter, []}
+      config :logger, :default_handler, formatter: {Mayfly.LogFormatter, %{}}
 
   All Logger metadata except internal keys is included; values that are not
   JSON-encodable are `inspect`ed.

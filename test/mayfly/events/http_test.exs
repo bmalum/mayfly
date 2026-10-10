@@ -197,4 +197,52 @@ defmodule Mayfly.Events.HTTPTest do
       assert is_binary(JSON.encode!(r))
     end
   end
+
+  describe "helper argument shapes" do
+    alias Mayfly.Events.HTTP
+
+    test "a keyword list in the target position is treated as options" do
+      assert {:ok,
+              %{statusCode: 201, headers: %{"x-a" => "1", "content-type" => "application/json"}}} =
+               HTTP.respond(201, %{ok: true}, headers: %{"x-a" => "1"})
+
+      assert {:ok, %{statusCode: 200, cookies: ["a=1"]}} = HTTP.json(200, %{}, cookies: ["a=1"])
+      assert {:ok, %{statusCode: 418}} = HTTP.text(418, "tea", headers: %{})
+    end
+
+    test "redirect/3 keeps caller headers and cookies and accepts :status" do
+      assert {:ok,
+              %{
+                statusCode: 301,
+                headers: %{"location" => "/x", "cache-control" => "no-store"},
+                cookies: ["s=1"]
+              }} =
+               HTTP.redirect("/x", :v2,
+                 status: 301,
+                 headers: %{"cache-control" => "no-store"},
+                 cookies: ["s=1"]
+               )
+
+      assert {:ok, %{statusCode: 302, headers: %{"location" => "/y"}}} =
+               HTTP.redirect("/y", headers: %{})
+    end
+
+    test "v2 responses join list-valued headers instead of dropping them" do
+      assert {:ok, %{headers: %{"vary" => "accept, origin"}} = r} =
+               HTTP.respond(200, "", :v2, headers: %{"vary" => ["accept", "origin"]})
+
+      refute Map.has_key?(r, :multiValueHeaders)
+    end
+
+    test "ALB source_ip is the last X-Forwarded-For hop" do
+      event = %{
+        "requestContext" => %{"elb" => %{}},
+        "httpMethod" => "GET",
+        "path" => "/",
+        "headers" => %{"x-forwarded-for" => "1.1.1.1, 10.0.0.9"}
+      }
+
+      assert %Mayfly.Events.HTTP.Request{source_ip: "10.0.0.9"} = HTTP.decode(event)
+    end
+  end
 end

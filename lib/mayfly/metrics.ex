@@ -62,7 +62,12 @@ defmodule Mayfly.Metrics do
 
   @doc "Emits a `Count` metric."
   @spec count(String.t(), String.t(), number(), keyword()) :: :ok
-  def count(namespace, name, value \\ 1, opts \\ []),
+  def count(namespace, name, value \\ 1, opts \\ [])
+
+  # `count(ns, name, dimensions: ...)` – the keyword list is the options, not the value.
+  def count(namespace, name, opts, []) when is_list(opts), do: count(namespace, name, 1, opts)
+
+  def count(namespace, name, value, opts),
     do: emit(namespace, %{name => {value, "Count"}}, opts)
 
   @doc "Emits a `Milliseconds` metric."

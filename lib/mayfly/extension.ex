@@ -23,14 +23,12 @@ defmodule Mayfly.Extension do
       them as CloudWatch EMF metrics.
     * Every telemetry record is logged at `debug` level.
 
-  What you do **not** get: a `SHUTDOWN` hook. Lambda only delivers `SHUTDOWN`
-  to *external* extensions (separate processes under `/opt/extensions`);
-  internal extensions registering for it are rejected with
-  `ShutdownEventNotSupportedForInternalExtension`. Mayfly therefore registers
-  for `INVOKE` only. Logger flushing at shutdown would need an external
-  extension and is out of scope; Lambda's log capture of the invocation's
-  stdout is complete once the response is posted, so lines logged before the
-  handler returns are not at risk.
+  What you do **not** get from this module: a `SHUTDOWN` hook. Lambda only
+  delivers `SHUTDOWN` to *external* extensions; internal extensions
+  registering for it are rejected with
+  `ShutdownEventNotSupportedForInternalExtension`, so Mayfly registers for
+  `INVOKE` only. Graceful shutdown is provided separately by `Mayfly.Shutdown`
+  together with the `mayfly-shutdown` extension layer.
 
   ## How it works
 

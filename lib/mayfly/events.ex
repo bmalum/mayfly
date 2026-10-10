@@ -17,6 +17,14 @@ defmodule Mayfly.Events do
   | Kinesis Data Streams | `Mayfly.Events.Kinesis` | `eventSource: "aws:kinesis"` |
   | DynamoDB Streams | `Mayfly.Events.DynamoDB` | `eventSource: "aws:dynamodb"` |
 
+  Return shapes follow one rule: *decoders* (`Mayfly.Events.HTTP.decode/1`,
+  `Mayfly.Events.SQS.decode/1`, …) take a known envelope and return the struct
+  directly, since they cannot fail on the shape they were given; `decode/1`
+  here dispatches on an *unknown* event and therefore returns `{:ok, struct}`
+  or `:unknown`; *response helpers* (`Mayfly.Events.HTTP.json/4`,
+  `Mayfly.Events.SQS.process_batch/2`, …) return exactly what a handler
+  returns, so they can be the last expression of `handle/3`.
+
   Use the specific module when you know the source, or `decode/1` to
   dispatch:
 

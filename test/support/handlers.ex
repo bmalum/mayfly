@@ -135,6 +135,9 @@ defmodule Mayfly.Test.Handlers do
   end
 
   # Legacy Module.function style
+  # A legacy module may define init/1 for unrelated reasons (GenServer, Plug); Mayfly must not call it.
+  def init(_), do: raise("legacy init/1 must not be called by Mayfly")
+
   def legacy1(event), do: {:ok, %{legacy: 1, event: event}}
 
   def legacy2(event, %Mayfly.Context{} = ctx),

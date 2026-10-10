@@ -122,4 +122,8 @@ defmodule Mayfly.HandlerTest do
       assert {:error, %{errorType: "Throw"}} = Handler.invoke(h, %{"mode" => "throw"}, @ctx)
     end
   end
+
+  test "legacy Module.function handlers do not get init/1 called" do
+    assert {:ok, %{state: nil}} = Mayfly.Handler.resolve("Mayfly.Test.Handlers.legacy1")
+  end
 end

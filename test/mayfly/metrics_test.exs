@@ -174,4 +174,12 @@ defmodule Mayfly.MetricsTest do
              &(&1["Name"] == "MaxMemoryUsed")
            )["Unit"] == "Megabytes"
   end
+
+  test "count/3 with a keyword list treats it as options, value defaults to 1" do
+    {:ok, dev} = StringIO.open("")
+    :ok = Metrics.count("NS", "Hits", dimensions: %{"A" => "b"}, device: dev)
+    {_, out} = StringIO.contents(dev)
+    rec = JSON.decode!(out)
+    assert rec["Hits"] == 1 and rec["A"] == "b"
+  end
 end

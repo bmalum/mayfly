@@ -188,4 +188,26 @@ defmodule Mayfly.ExtensionTest do
             {:shutdown, {:failed_to_start_child, Extension, {:extension, {:register, _}}}}} =
              result
   end
+
+  test "repeated /event/next failures end in a halt instead of hanging invocations" do
+    rt = start_supervised!({LocalRuntime, []}, id: make_ref())
+    test = self()
+
+    {:ok, _sup} =
+      Mayfly.start_link(
+        handler: "Mayfly.Test.Handlers.Echo",
+        runtime_api: LocalRuntime.address(rt),
+        name: nil,
+        extension: true,
+        extension_opts: [
+          name: nil,
+          listener_host: "127.0.0.1",
+          halt: fn code -> send(test, {:halted, code}) end
+        ]
+      )
+
+    # Registration succeeded against the emulator; now make /event/next fail for good.
+    LocalRuntime.break_extension_events(rt)
+    assert_receive {:halted, 1}, 15_000
+  end
 end
