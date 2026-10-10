@@ -159,7 +159,8 @@ defmodule Mayfly.Extension do
            packet: :raw,
            active: false,
            reuseaddr: true,
-           ip: {0, 0, 0, 0}
+           # Telemetry is delivered from inside the sandbox over loopback.
+           ip: {127, 0, 0, 1}
          ]) do
       {:ok, listen} ->
         {:ok, port} = :inet.port(listen)
@@ -206,8 +207,19 @@ defmodule Mayfly.Extension do
     {:noreply, state}
   end
 
-  def handle_info({:event_loop_error, reason}, state) do
-    Logger.warning("Mayfly extension: event loop stopped: #{inspect(reason)}")
+  def handle_info({:event_loop_error, reason, failures}, state) do
+    Logger.warning("Mayfly extension: /event/next failed (#{failures}): #{inspect(reason)}")
+    {:noreply, state}
+  end
+
+  def handle_info({:event_loop_dead, reason}, state) do
+    Logger.error(
+      "Mayfly extension: giving up on /event/next after repeated failures (#{inspect(reason)}); " <>
+        "halting so Lambda recycles the environment instead of timing out every invocation"
+    )
+
+    Logger.flush()
+    state.halt.(1)
     {:noreply, state}
   end
 
@@ -236,20 +248,44 @@ defmodule Mayfly.Extension do
 
   # -- event loop (GET /event/next blocks until the next event) ------------------------
 
-  defp event_loop(endpoint, identifier, server) do
+  # Lambda waits for every registered extension to call /event/next before it
+  # completes an invocation, so this loop must never silently stop: transient
+  # errors are retried with backoff, and after too many consecutive failures
+  # the runtime halts (an environment without a working extension would hang
+  # every invocation until timeout).
+  @max_consecutive_failures 5
+
+  defp event_loop(endpoint, identifier, server, failures \\ 0) do
     case HTTP.get(endpoint, @next_path, [{@id_header, identifier}]) do
       {:ok, %{status: 200, body: body}} ->
         case JSON.decode(body) do
-          {:ok, %{"eventType" => "SHUTDOWN"} = record} -> send(server, {:shutdown, record})
-          {:ok, _invoke} -> event_loop(endpoint, identifier, server)
-          {:error, reason} -> send(server, {:event_loop_error, {:bad_json, reason}})
+          {:ok, %{"eventType" => "SHUTDOWN"} = record} ->
+            send(server, {:shutdown, record})
+
+          {:ok, _invoke} ->
+            event_loop(endpoint, identifier, server, 0)
+
+          {:error, reason} ->
+            retry(endpoint, identifier, server, failures, {:bad_json, reason})
         end
 
       {:ok, %{status: status, body: body}} ->
-        send(server, {:event_loop_error, {:http, status, body}})
+        retry(endpoint, identifier, server, failures, {:http, status, body})
 
       {:error, reason} ->
-        send(server, {:event_loop_error, reason})
+        retry(endpoint, identifier, server, failures, reason)
+    end
+  end
+
+  defp retry(endpoint, identifier, server, failures, reason) do
+    failures = failures + 1
+    send(server, {:event_loop_error, reason, failures})
+
+    if failures >= @max_consecutive_failures do
+      send(server, {:event_loop_dead, reason})
+    else
+      Process.sleep(min(100 * Integer.pow(2, failures), 2_000))
+      event_loop(endpoint, identifier, server, failures)
     end
   end
 
@@ -263,6 +299,12 @@ defmodule Mayfly.Extension do
 
       {:error, :closed} ->
         :ok
+
+      {:error, reason} ->
+        # :emfile, :enfile, ... – back off and keep accepting rather than crash.
+        Logger.warning("Mayfly extension: accept failed: #{inspect(reason)}")
+        Process.sleep(200)
+        accept_loop(listen, server)
     end
   end
 

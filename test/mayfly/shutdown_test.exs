@@ -75,4 +75,27 @@ defmodule Mayfly.ShutdownTest do
     assert_receive {^port, {:exit_status, 0}}, 10_000
     assert File.read!(marker) == "hook ran"
   end
+
+  test "a global deadline bounds all hooks together and register/1 without a server is a no-op" do
+    test = self()
+
+    {:ok, pid} =
+      Shutdown.start_link(
+        name: nil,
+        signals: false,
+        hook_timeout_ms: 500,
+        deadline_ms: 300,
+        halt: fn code -> send(test, {:halted, code}) end
+      )
+
+    for _ <- 1..3, do: :ok = Shutdown.register(fn -> Process.sleep(1_000) end, pid)
+    :ok = Shutdown.register(fn -> send(test, :never) end, pid)
+    started = System.monotonic_time(:millisecond)
+    :ok = Shutdown.run(pid)
+    assert_receive {:halted, 0}, 2_000
+    assert System.monotonic_time(:millisecond) - started < 1_000
+    refute_received :never
+
+    assert :ok = Shutdown.register(fn -> :ok end, :no_such_shutdown_server)
+  end
 end

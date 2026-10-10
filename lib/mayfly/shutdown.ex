@@ -15,7 +15,9 @@ defmodule Mayfly.Shutdown do
 
   1. `:telemetry` event `[:mayfly, :shutdown]` with `%{reason: :sigterm}`;
   2. the hooks registered with `register/1` (your `init/1` can register one to
-     drain a queue or close connections), each bounded by `:hook_timeout_ms`;
+     drain a queue or close connections), each bounded by `:hook_timeout_ms`
+     (1 s) and all of them together by `:deadline_ms` (1.2 s, inside Lambda's
+     2 s window with room for the log flush);
   3. `Logger.flush/0`;
   4. `System.halt(0)`.
 
@@ -35,6 +37,7 @@ defmodule Mayfly.Shutdown do
   alias Mayfly.Telemetry
 
   @hook_timeout_ms 1_000
+  @deadline_ms 1_200
 
   @doc false
   def start_link(opts \\ []) do
@@ -44,10 +47,23 @@ defmodule Mayfly.Shutdown do
   @doc false
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
 
-  @doc "Registers a zero-arity function to run on shutdown. Returns `:ok`."
+  @doc """
+  Registers a zero-arity function to run on shutdown. Returns `:ok`.
+
+  Outside Lambda (`mix lambda.invoke`, tests, `Mayfly.start_link/1` in your own
+  supervision tree) the handler process may not exist; the call then logs at
+  debug and returns `:ok`, so `init/1` code registering hooks works everywhere.
+  """
   @spec register((-> any()), GenServer.server()) :: :ok
   def register(fun, server \\ __MODULE__) when is_function(fun, 0) do
     GenServer.call(server, {:register, fun})
+  catch
+    :exit, {:noproc, _} ->
+      Logger.debug(
+        "Mayfly.Shutdown is not running; hook not registered (no SIGTERM outside Lambda)"
+      )
+
+      :ok
   end
 
   @doc """
@@ -64,6 +80,7 @@ defmodule Mayfly.Shutdown do
       hooks: [],
       halt: Keyword.get(opts, :halt, &System.halt/1),
       hook_timeout_ms: Keyword.get(opts, :hook_timeout_ms, @hook_timeout_ms),
+      deadline_ms: Keyword.get(opts, :deadline_ms, @deadline_ms),
       signals: Keyword.get(opts, :signals, true)
     }
 
@@ -103,9 +120,18 @@ defmodule Mayfly.Shutdown do
     Logger.info("Mayfly: shutdown (#{reason}), running #{length(state.hooks)} hook(s)")
     Telemetry.execute([:mayfly, :shutdown], %{}, %{reason: reason})
 
+    deadline = started + System.convert_time_unit(state.deadline_ms, :millisecond, :native)
+
     state.hooks
     |> Enum.reverse()
-    |> Enum.each(&run_hook(&1, state.hook_timeout_ms))
+    |> Enum.each(fn hook ->
+      remaining =
+        System.convert_time_unit(deadline - System.monotonic_time(), :native, :millisecond)
+
+      if remaining > 0,
+        do: run_hook(hook, min(state.hook_timeout_ms, remaining)),
+        else: Logger.warning("Mayfly: shutdown deadline reached, skipping remaining hooks")
+    end)
 
     Logger.flush()
     ms = System.convert_time_unit(System.monotonic_time() - started, :native, :millisecond)
