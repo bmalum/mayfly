@@ -32,17 +32,6 @@ defmodule Mayfly.ErrorPayload do
   @type t :: %{errorType: String.t(), errorMessage: String.t(), stackTrace: [String.t()]}
 
   @inspect_opts [limit: 50, printable_limit: 500]
-  @runtime_modules [
-    Mayfly,
-    Mayfly.Boot,
-    Mayfly.Poller,
-    Mayfly.Handler,
-    Mayfly.RuntimeAPI,
-    Mayfly.HTTP,
-    Mayfly.ErrorPayload,
-    Mayfly.Response
-  ]
-
   @doc "Builds a payload from an exception, a handler `{:error, reason}` value or any term."
   @spec from_term(term(), Exception.stacktrace() | nil) :: t()
   def from_term(term, stacktrace \\ nil)
@@ -94,13 +83,13 @@ defmodule Mayfly.ErrorPayload do
       "Function.HandlerError"
   """
   @spec header_type(String.t()) :: String.t()
-  def header_type("Runtime." <> _ = type), do: type
-  def header_type("Function." <> _ = type), do: type
+  def header_type("Runtime." <> reason), do: "Runtime." <> clean_reason(reason)
+  def header_type("Function." <> reason), do: "Function." <> clean_reason(reason)
+  def header_type(type) when is_binary(type), do: "Function." <> clean_reason(type)
 
-  def header_type(type) when is_binary(type) do
-    reason = type |> String.replace(~r/[^A-Za-z0-9]/, "") |> ensure_uppercase()
-    "Function." <> reason
-  end
+  # Header values must be a single token: strip anything that is not alphanumeric.
+  defp clean_reason(reason),
+    do: reason |> String.replace(~r/[^A-Za-z0-9]/, "") |> ensure_uppercase()
 
   @doc """
   Formats a stacktrace as a list of lines, dropping frames that belong to
@@ -110,8 +99,11 @@ defmodule Mayfly.ErrorPayload do
   def format_stacktrace(nil), do: []
 
   def format_stacktrace(stacktrace) when is_list(stacktrace) do
+    # Cut where Mayfly called into the handler (Mayfly.Handler / Mayfly.Poller);
+    # frames of other Mayfly modules above that point (Events, Response helpers
+    # the handler used) stay, they are part of the user's call path.
     stacktrace
-    |> Enum.take_while(&(not mayfly_frame?(&1)))
+    |> Enum.take_while(&(not invocation_boundary?(&1)))
     |> Enum.map(&Exception.format_stacktrace_entry/1)
   end
 
@@ -131,11 +123,28 @@ defmodule Mayfly.ErrorPayload do
     }
   end
 
-  defp new(type, message, stacktrace),
-    do: %{errorType: type, errorMessage: message, stackTrace: format_stacktrace(stacktrace)}
+  # errorType and errorMessage end up in JSON: non-UTF-8 binaries would make the
+  # error report itself fail, so they are inspected instead.
+  defp new(type, message, stacktrace) do
+    %{
+      errorType: utf8(type, "HandlerError"),
+      errorMessage: utf8(message, nil),
+      stackTrace: format_stacktrace(stacktrace)
+    }
+  end
 
-  defp mayfly_frame?({module, _f, _a, _loc}), do: module in @runtime_modules
-  defp mayfly_frame?(_), do: false
+  defp utf8(bin, _fallback) when is_binary(bin) and byte_size(bin) <= 65_536 do
+    if String.valid?(bin), do: bin, else: safe_inspect(bin)
+  end
+
+  defp utf8(bin, nil) when is_binary(bin),
+    do: binary_part(bin, 0, 65_536) |> utf8(nil) |> Kernel.<>("… (truncated)")
+
+  defp utf8(_bin, fallback) when is_binary(fallback), do: fallback
+  defp utf8(other, _), do: safe_inspect(other)
+
+  defp invocation_boundary?({module, _f, _a, _loc}), do: module in [Mayfly.Handler, Mayfly.Poller]
+  defp invocation_boundary?(_), do: false
 
   defp safe_inspect(term), do: inspect(term, @inspect_opts)
 

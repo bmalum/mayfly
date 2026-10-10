@@ -75,6 +75,45 @@ defmodule Mayfly.RuntimeIntegrationTest do
     assert {"content-type", "application/octet-stream"} in headers
   end
 
+  test "a crash from a linked process is reported as an error, and the poller survives" do
+    {rt, {:ok, sup}} = start_runtime("Mayfly.Test.Handlers.Faulty")
+
+    assert {:error, %{"errorType" => "Exit", "errorMessage" => msg}} =
+             LocalRuntime.invoke(rt, %{"mode" => "linked_crash"})
+
+    assert msg =~ "task died"
+
+    assert {:error, %{"errorType" => "Exit", "errorMessage" => msg}} =
+             LocalRuntime.invoke(rt, %{"mode" => "kill_self"})
+
+    assert msg =~ "killed"
+    # the same poller keeps serving: no restart happened
+    [{_, poller, _, _}] = Supervisor.which_children(sup)
+    assert Process.alive?(poller)
+    assert {:ok, %{body: ~s({"after":true})}} = LocalRuntime.invoke(rt, %{"after" => true})
+  end
+
+  test "non-UTF-8 error terms and non-iodata list bodies are reported, not crashed on" do
+    {rt, {:ok, _}} = start_runtime("Mayfly.Test.Handlers.Faulty")
+
+    assert {:error, %{"errorType" => "HandlerError", "errorMessage" => msg}} =
+             LocalRuntime.invoke(rt, %{"mode" => "binary_error"})
+
+    assert msg =~ "255"
+
+    assert {:error, %{"errorType" => "Runtime.InvalidResponse", "errorMessage" => msg}} =
+             LocalRuntime.invoke(rt, %{"mode" => "bad_iodata"})
+
+    assert msg =~ "not iodata"
+  end
+
+  test "error types with a prefix are still sanitised for the header" do
+    {rt, {:ok, _}} = start_runtime("Mayfly.Test.Handlers.Faulty")
+    assert {:error, _} = LocalRuntime.invoke(rt, %{"mode" => "prefixed_type"})
+    assert Mayfly.ErrorPayload.header_type("Runtime.Evil\r\nX: y") == "Runtime.EvilXy"
+    assert Mayfly.ErrorPayload.header_type("Function.a b") == "Function.Ab"
+  end
+
   test "streaming response uses chunked encoding and the streaming header" do
     {rt, {:ok, _}} = start_runtime("Mayfly.Test.Handlers.Streaming")
 

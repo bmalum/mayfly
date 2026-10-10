@@ -87,8 +87,8 @@ defmodule Mayfly.Handler do
   def resolve(handler, opts) when is_binary(handler) do
     parts = handler |> String.split(".", trim: true) |> Enum.reject(&(&1 == "Elixir"))
 
-    with {:ok, module, fun} <- locate(parts, handler),
-         {:ok, state} <- run_init(module, fun, opts) do
+    with {:ok, module, fun, kind} <- locate(parts, handler),
+         {:ok, state} <- run_init(module, kind, opts) do
       {:ok, %{module: module, fun: fun, state: state}}
     end
   end
@@ -117,7 +117,7 @@ defmodule Mayfly.Handler do
 
     cond do
       Code.ensure_loaded?(module) and function_exported?(module, :handle, 3) ->
-        {:ok, module, &module.handle/3}
+        {:ok, module, &module.handle/3, :behaviour}
 
       Code.ensure_loaded?(module) ->
         {:error,
@@ -142,10 +142,10 @@ defmodule Mayfly.Handler do
 
         cond do
           function_exported?(module, fun, 2) ->
-            {:ok, module, fn event, ctx, _state -> apply(module, fun, [event, ctx]) end}
+            {:ok, module, fn event, ctx, _state -> apply(module, fun, [event, ctx]) end, :legacy}
 
           function_exported?(module, fun, 1) ->
-            {:ok, module, fn event, _ctx, _state -> apply(module, fun, [event]) end}
+            {:ok, module, fn event, _ctx, _state -> apply(module, fun, [event]) end, :legacy}
 
           true ->
             {:error, no_such_handler(not_exported(module, function_name))}
@@ -168,7 +168,11 @@ defmodule Mayfly.Handler do
 
   defp no_such_handler(message), do: ErrorPayload.runtime("NoSuchHandler", message)
 
-  defp run_init(module, _fun, opts) do
+  defp run_init(_module, :legacy, _opts), do: {:ok, nil}
+
+  # Only Mayfly.Handler modules have an init/1 contract; a legacy `Module.function`
+  # handler may define init/1 for an unrelated reason (GenServer, Plug).
+  defp run_init(module, :behaviour, opts) do
     if function_exported?(module, :init, 1) do
       try do
         case module.init(opts) do

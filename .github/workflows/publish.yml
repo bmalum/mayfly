@@ -30,6 +30,13 @@ jobs:
       - run: mix compile --warnings-as-errors
       - run: mix test
       - run: mix docs
+      - name: Build the package and refuse anything suspiciously large (artefacts leaking in)
+        run: |
+          mix hex.build
+          size=$(stat -c %s mayfly-*.tar)
+          echo "package size: $size bytes"
+          test "$size" -lt 2000000 || { echo "package larger than 2 MB: a build artefact is being shipped"; tar tf mayfly-*.tar | head -50; exit 1; }
+          tar tf mayfly-*.tar | grep -qE "^layer/dist|^priv/plts|skills/mayfly-maintainer" && { echo "forbidden path in package"; exit 1; } || true
       - run: mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

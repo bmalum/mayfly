@@ -19,10 +19,20 @@ defmodule Mayfly.Boot do
   @spec main([String.t()]) :: no_return()
   def main(_args \\ []) do
     configure_logger()
-    start_applications()
-    # SIGTERM arrives only when the mayfly-shutdown extension layer is attached.
-    {:ok, _} = Mayfly.Shutdown.start_link()
 
+    with :ok <- start_applications(),
+         :ok <- start_shutdown() do
+      start_runtime()
+    else
+      {:error, payload} ->
+        # Report what we can before exiting; without this Lambda only shows Runtime.ExitError.
+        Logger.error("Initialisation failed: #{payload.errorType}: #{payload.errorMessage}")
+        report_init_error(payload)
+        System.halt(1)
+    end
+  end
+
+  defp start_runtime do
     case Mayfly.start_link() do
       {:ok, _pid} ->
         Process.sleep(:infinity)
@@ -39,12 +49,12 @@ defmodule Mayfly.Boot do
 
   @doc false
   def configure_logger do
-    level =
-      (System.get_env("LOGLEVEL") || System.get_env("AWS_LAMBDA_LOG_LEVEL") || "info")
-      |> String.downcase()
-      |> to_level()
-
-    Logger.configure(level: level)
+    # Only override the level when Lambda/the user set it; otherwise the
+    # application's own config (config :logger, level: ...) stands.
+    case System.get_env("LOGLEVEL") || System.get_env("AWS_LAMBDA_LOG_LEVEL") do
+      nil -> :ok
+      level -> Logger.configure(level: level |> String.downcase() |> to_level())
+    end
 
     if System.get_env("AWS_LAMBDA_LOG_FORMAT") == "JSON" do
       :logger.update_handler_config(:default, :formatter, {Mayfly.LogFormatter, %{}})
@@ -55,11 +65,53 @@ defmodule Mayfly.Boot do
     # The release's applications list is in :included/:applications order; the
     # user's app is the one that depends on :mayfly. Starting :mayfly's own
     # dependents is enough to bring up everything the release contains.
-    for {app, _desc, _vsn} <- Application.loaded_applications(), app != :mayfly do
-      case Application.ensure_all_started(app) do
-        {:ok, _} -> :ok
-        {:error, reason} -> raise "could not start #{app}: #{inspect(reason)}"
-      end
+    Enum.reduce_while(Application.loaded_applications(), :ok, fn
+      {:mayfly, _, _}, acc ->
+        {:cont, acc}
+
+      {app, _desc, _vsn}, acc ->
+        case Application.ensure_all_started(app) do
+          {:ok, _} ->
+            {:cont, acc}
+
+          {:error, reason} ->
+            {:halt,
+             {:error,
+              Mayfly.ErrorPayload.runtime(
+                "InitError",
+                "could not start application #{app}: #{inspect(reason, limit: 50, printable_limit: 500)}"
+              )}}
+        end
+    end)
+  end
+
+  # SIGTERM arrives only when the mayfly-shutdown extension layer is attached.
+  defp start_shutdown do
+    case Mayfly.Shutdown.start_link() do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        {:error,
+         Mayfly.ErrorPayload.runtime(
+           "InitError",
+           "could not install the shutdown handler: #{inspect(reason)}"
+         )}
+    end
+  end
+
+  defp report_init_error(payload) do
+    case System.get_env("AWS_LAMBDA_RUNTIME_API") do
+      nil ->
+        :ok
+
+      api ->
+        [host, port] = String.split(api, ":", parts: 2)
+
+        case Mayfly.RuntimeAPI.init_error({host, String.to_integer(port)}, payload) do
+          :ok -> :ok
+          {:error, reason} -> Logger.error("Could not report init error: #{inspect(reason)}")
+        end
     end
   end
 

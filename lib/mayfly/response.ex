@@ -88,9 +88,21 @@ defmodule Mayfly.Response do
     e -> {:error, e}
   end
 
-  def encode_buffered(%__MODULE__{content_type: ct, body: body})
-      when is_binary(body) or is_list(body) do
+  def encode_buffered(%__MODULE__{content_type: ct, body: body}) when is_binary(body),
+    do: {:ok, ct, body}
+
+  def encode_buffered(%__MODULE__{content_type: ct, body: body}) when is_list(body) do
+    # A list is only a body when it is iodata; [1000] or [%{}] would crash the
+    # socket write and lose the invocation.
+    _ = IO.iodata_length(body)
     {:ok, ct, body}
+  rescue
+    ArgumentError ->
+      {:error,
+       %ArgumentError{
+         message:
+           "response with content type #{ct} has a list body that is not iodata: #{inspect(body, limit: 20)}"
+       }}
   end
 
   def encode_buffered(%__MODULE__{content_type: ct, body: body}) do

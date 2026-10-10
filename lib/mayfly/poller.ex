@@ -86,17 +86,33 @@ defmodule Mayfly.Poller do
     Logger.error("Invocation without Lambda-Runtime-Aws-Request-Id header, skipping")
   end
 
+  # Each invocation runs in its own monitored process. The handler's own
+  # exceptions, exits and throws are caught by Handler.invoke; what this guards
+  # against is everything that can still take a process down from the outside
+  # (a linked Task or port dying, Process.exit/2 from user code), which would
+  # otherwise kill the poller and leave the invocation unanswered until Lambda
+  # times it out. Response streaming happens inside the same process.
   defp process(%Context{} = ctx, body, state) do
     if ctx.trace_id, do: System.put_env("_X_AMZN_TRACE_ID", ctx.trace_id)
     Logger.metadata(Context.logger_metadata(ctx))
 
     Telemetry.span([:mayfly, :invocation], %{context: ctx}, fn ->
+      metadata = Logger.metadata()
+
+      {pid, ref} =
+        spawn_monitor(fn ->
+          Logger.metadata(metadata)
+          exit({:mayfly_outcome, run_invocation(ctx, body, state)})
+        end)
+
       outcome =
-        with {:ok, event} <- decode(body),
-             {:ok, %Response{} = response} <- Handler.invoke(state.handler, event, ctx) do
-          {:ok, state.api.invocation_response(state.endpoint, ctx, response)}
-        else
-          {:error, %{errorType: _} = payload} ->
+        receive do
+          {:DOWN, ^ref, :process, ^pid, {:mayfly_outcome, outcome}} ->
+            outcome
+
+          {:DOWN, ^ref, :process, ^pid, reason} ->
+            # Out-of-band death: report it as an error so Lambda does not wait.
+            payload = ErrorPayload.from_caught(:exit, reason, [])
             {:error, payload, state.api.invocation_error(state.endpoint, ctx, payload)}
         end
 
@@ -106,7 +122,31 @@ defmodule Mayfly.Poller do
     Logger.metadata(request_id: nil, tenant_id: nil, trace_id: nil)
   end
 
+  defp run_invocation(ctx, body, state) do
+    with {:ok, event} <- decode(body),
+         {:ok, %Response{} = response} <- Handler.invoke(state.handler, event, ctx) do
+      {:ok, state.api.invocation_response(state.endpoint, ctx, response)}
+    else
+      {:error, %{errorType: _} = payload} ->
+        {:error, payload, state.api.invocation_error(state.endpoint, ctx, payload)}
+    end
+  catch
+    # Last resort: a bug in Mayfly's own encode/post path must still answer Lambda.
+    kind, reason ->
+      payload = ErrorPayload.from_caught(kind, reason, __STACKTRACE__)
+      payload = %{payload | errorType: "Runtime.Unknown"}
+      {:error, payload, state.api.invocation_error(state.endpoint, ctx, payload)}
+  end
+
   defp report({:ok, :ok}, _ctx), do: {:ok, %{result: :ok, error_type: nil}}
+
+  defp report({:ok, {:error_reported, payload}}, ctx) do
+    Logger.error(
+      "Invocation #{ctx.request_id} failed: #{payload.errorType}: #{payload.errorMessage}"
+    )
+
+    {:ok, %{result: :error, error_type: payload.errorType}}
+  end
 
   defp report({:ok, {:error, reason}}, ctx) do
     Logger.error("Failed to post response for #{ctx.request_id}: #{inspect(reason)}")

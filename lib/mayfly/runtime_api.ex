@@ -25,7 +25,8 @@ defmodule Mayfly.RuntimeAPI do
   @type error :: {:http, 100..599, binary()} | term()
 
   @callback next_invocation(endpoint()) :: {:ok, invocation()} | {:error, error()}
-  @callback invocation_response(endpoint(), Context.t(), Response.t()) :: :ok | {:error, error()}
+  @callback invocation_response(endpoint(), Context.t(), Response.t()) ::
+              :ok | {:error_reported, ErrorPayload.t()} | {:error, error()}
   @callback invocation_error(endpoint(), Context.t(), ErrorPayload.t()) :: :ok | {:error, error()}
   @callback init_error(endpoint(), ErrorPayload.t()) :: :ok | {:error, error()}
 
@@ -79,7 +80,10 @@ defmodule Mayfly.RuntimeAPI do
             "Handler result could not be encoded: " <> Exception.message(exception)
           )
 
-        invocation_error(endpoint, ctx, payload)
+        case invocation_error(endpoint, ctx, payload) do
+          :ok -> {:error_reported, payload}
+          {:error, _} = error -> error
+        end
     end
   end
 
@@ -95,6 +99,7 @@ defmodule Mayfly.RuntimeAPI do
 
     accept(
       HTTP.post_chunked(endpoint, path, headers, chunks,
+        send_timeout: response.send_timeout,
         trailer_names: [
           "Lambda-Runtime-Function-Error-Type",
           "Lambda-Runtime-Function-Error-Body"
@@ -118,7 +123,20 @@ defmodule Mayfly.RuntimeAPI do
   # -- helpers ----------------------------------------------------------------
 
   defp post_error(endpoint, path, headers, payload) do
-    body = JSON.encode_to_iodata!(payload)
+    body =
+      try do
+        JSON.encode_to_iodata!(payload)
+      rescue
+        # ErrorPayload sanitises, but never let the error report itself crash.
+        e ->
+          JSON.encode_to_iodata!(
+            ErrorPayload.runtime(
+              "UnencodableError",
+              "error payload could not be encoded: " <> Exception.message(e)
+            )
+          )
+      end
+
     accept(HTTP.post(endpoint, path, [{"content-type", "application/json"} | headers], body))
   end
 

@@ -65,7 +65,9 @@ defmodule Mayfly.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url, "Docs" => "https://elixir-aws-lambda.dev/docs"},
       files:
-        ~w(lib priv guides layer skills templates lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md ROADMAP.md LICENSE)
+        ~w(lib priv guides layer skills/mayfly-elixir-lambda templates lambda.Dockerfile .dockerignore mix.exs README.md CHANGELOG.md ROADMAP.md LICENSE),
+      # Hex does not honour .gitignore: keep build artefacts out of the tarball.
+      exclude_patterns: [~r"^layer/dist/", ~r"^priv/plts/", ~r"\.DS_Store$"]
     ]
   end
 

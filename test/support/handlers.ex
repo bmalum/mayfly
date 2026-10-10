@@ -64,6 +64,20 @@ defmodule Mayfly.Test.Handlers do
     def handle(%{"mode" => "error_map"}, _ctx, _s),
       do: {:error, %{errorType: "MyApp.NotFound", errorMessage: "no such thing"}}
 
+    # A linked process dying takes the invocation process down from the outside.
+    def handle(%{"mode" => "linked_crash"}, _ctx, _s) do
+      Task.async(fn -> raise "task died" end) |> Task.await()
+    end
+
+    def handle(%{"mode" => "kill_self"}, _ctx, _s), do: Process.exit(self(), :kill)
+    def handle(%{"mode" => "binary_error"}, _ctx, _s), do: {:error, <<255, 254, 0>>}
+
+    def handle(%{"mode" => "bad_iodata"}, _ctx, _s),
+      do: {:ok, %Mayfly.Response{body: [1000, %{}], content_type: "text/plain"}}
+
+    def handle(%{"mode" => "prefixed_type"}, _ctx, _s),
+      do: {:error, %{errorType: "Runtime.Evil\r\nX: y", errorMessage: "x"}}
+
     def handle(%{"mode" => "bare"}, _ctx, _s), do: %{status: "ok"}
     def handle(%{"mode" => "unencodable"}, _ctx, _s), do: {:ok, {:a, :tuple}}
 

@@ -103,7 +103,9 @@ defmodule Mayfly.Events.HTTP do
       cookies: cookies_from_header(headers),
       body: body(e["body"], e["isBase64Encoded"], headers),
       is_base64: e["isBase64Encoded"] == true,
-      source_ip: headers["x-forwarded-for"],
+      # ALB appends the connecting peer to the client-supplied header: the last
+      # entry is the one ALB saw, everything before it is attacker-controlled.
+      source_ip: last_forwarded(headers["x-forwarded-for"]),
       user_agent: headers["user-agent"],
       request_id: nil,
       stage: nil,
@@ -162,6 +164,11 @@ defmodule Mayfly.Events.HTTP do
 
     body_out = if base64?, do: Base.encode64(body_bin), else: body_bin
     {single, multi} = split_headers(headers)
+    # v2 has no multiValueHeaders: join repeated values as one header (RFC 9110).
+    single =
+      if version == :v2,
+        do: Map.merge(single, Map.new(multi, fn {k, vs} -> {k, Enum.join(vs, ", ")} end)),
+        else: single
 
     response =
       %{statusCode: status, headers: single, body: body_out, isBase64Encoded: base64?}
@@ -235,6 +242,9 @@ defmodule Mayfly.Events.HTTP do
       decoded
     end
   end
+
+  defp last_forwarded(nil), do: nil
+  defp last_forwarded(xff), do: xff |> String.split(",") |> List.last() |> String.trim()
 
   defp cookies_from_header(%{"cookie" => cookie}) when is_binary(cookie),
     do: cookie |> String.split(";") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))

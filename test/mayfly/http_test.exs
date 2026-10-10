@@ -154,3 +154,32 @@ defmodule Mayfly.HTTPBackpressureTest do
     assert elapsed < 5_000, "took #{elapsed} ms"
   end
 end
+
+defmodule Mayfly.RuntimeAPISendTimeoutTest do
+  use ExUnit.Case, async: true
+
+  test "Response.stream/2 send_timeout reaches the streaming post" do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, recbuf: 4096])
+    {:ok, port} = :inet.port(listen)
+
+    spawn_link(fn ->
+      {:ok, _s} = :gen_tcp.accept(listen)
+      Process.sleep(:infinity)
+    end)
+
+    big = Stream.repeatedly(fn -> :binary.copy("x", 64 * 1024) end)
+
+    response =
+      Mayfly.Response.stream(%Mayfly.Response{body: big, content_type: "text/plain"},
+        send_timeout: 300
+      )
+
+    ctx = %Mayfly.Context{request_id: "r1"}
+    started = System.monotonic_time(:millisecond)
+    result = Mayfly.RuntimeAPI.invocation_response({"127.0.0.1", port}, ctx, response)
+    elapsed = System.monotonic_time(:millisecond) - started
+    assert {:error, _} = result
+    # with the default 30 s this would take far longer than the 300 ms we configured
+    assert elapsed < 5_000, "took #{elapsed} ms"
+  end
+end

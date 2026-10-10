@@ -33,7 +33,7 @@ defmodule Mayfly.Release do
 
   `prepare/1` applies these defaults unless you set them yourself:
   `include_executables_for: [:unix]`, `strip_beams: true`,
-  `rel_templates_path` pointing at Mayfly's `vm.args`/`env.sh` (no
+  `rel_templates_path` pointing at Mayfly's `vm.args` template (no
   distribution, `+sbwt none`, `RELEASE_TMP=/tmp`).
 
   Everything else is a normal release: umbrellas, several releases,
@@ -52,6 +52,13 @@ defmodule Mayfly.Release do
       |> Keyword.put_new(:include_executables_for, [:unix])
       |> Keyword.put_new(:strip_beams, true)
       |> Keyword.put_new(:rel_templates_path, Path.join(:code.priv_dir(:mayfly), "rel"))
+      # Mix derives the overlays directory from rel_templates_path; keep the
+      # project's rel/overlays working when we point the templates at ours.
+      |> then(fn opts ->
+        if File.dir?("rel/overlays") and not Keyword.has_key?(opts, :overlays),
+          do: Keyword.put(opts, :overlays, "rel/overlays"),
+          else: opts
+      end)
 
     release = %{release | options: options}
 
