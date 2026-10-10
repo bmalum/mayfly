@@ -22,6 +22,11 @@ import json, re, sys, datetime
 root, src = sys.argv[1], sys.argv[2]
 data = json.load(open(src))
 layers = data["layers"] if isinstance(data, dict) else data
+# These ARNs end up committed into IaC templates: refuse anything that is not a layer ARN.
+arn_re = re.compile(r"^arn:aws:lambda:[a-z0-9-]+:\d{12}:layer:mayfly-erlang-[0-9-]+-(arm64|x86_64):\d+$")
+bad = [l for l in layers if not arn_re.match(l.get("arn", ""))]
+if bad:
+    sys.exit(f"refusing to render: {len(bad)} catalog entries have unexpected ARNs, e.g. {bad[0]}")
 generated = data.get("generated", datetime.date.today().isoformat()) if isinstance(data, dict) else datetime.date.today().isoformat()
 
 # Newest patch per (region, otp major, arch); use the pinned ARN so deployments are reproducible.

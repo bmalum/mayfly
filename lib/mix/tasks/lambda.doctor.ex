@@ -218,6 +218,15 @@ defmodule Mix.Tasks.Lambda.Doctor do
   defp default_region, do: Mix.Tasks.Lambda.Catalog.default_region()
 
   defp compare_with_layer(name, arn, otp, erts) do
+    if System.find_executable("aws") do
+      do_compare_with_layer(name, arn, otp, erts)
+    else
+      {:warn, "release #{name}: cannot query layer #{arn}",
+       "the aws CLI is not on PATH; install it or compare the layer's OTP with #{otp} by hand"}
+    end
+  end
+
+  defp do_compare_with_layer(name, arn, otp, erts) do
     case System.cmd(
            "aws",
            [

@@ -51,9 +51,11 @@ jobs:
       - id: resolve
         env:
           GITHUB_TOKEN: ${{ github.token }}
+        env:
+          OTP_VERSIONS_INPUT: ${{ inputs.otp_versions }}
         run: |
-          if [ -n "${{ inputs.otp_versions }}" ]; then
-            list="${{ inputs.otp_versions }}"
+          if [ -n "$OTP_VERSIONS_INPUT" ]; then
+            list="$OTP_VERSIONS_INPUT"
           else
             list="$(layer/latest-otp.sh ${{ vars.LAYERS_OTP_MAJORS || '27 28' }} | tr '\n' ' ')"
           fi
@@ -104,9 +106,11 @@ jobs:
           role-to-assume: ${{ secrets.LAYERS_ROLE_ARN }}
           aws-region: us-east-1
       - name: Publish to all regions
+        env:
+          PUBLIC_INPUT: ${{ inputs.public }}
         run: |
           args=(--skip-existing)
-          [ "${{ inputs.public }}" != "false" ] && args+=(--public)
+          [ "$PUBLIC_INPUT" != "false" ] && args+=(--public)
           for r in ${{ vars.LAYERS_REGIONS || env.DEFAULT_REGIONS }}; do args+=(--region "$r"); done
           layer/publish.sh "${args[@]}"
           { echo "## Mayfly ERTS layers"; echo; cat layer/dist/ARNS.md; } >> "$GITHUB_STEP_SUMMARY"
@@ -176,9 +180,11 @@ jobs:
           role-to-assume: ${{ secrets.LAYERS_ROLE_ARN }}
           aws-region: us-east-1
       - name: Publish to all regions
+        env:
+          PUBLIC_INPUT: ${{ inputs.public }}
         run: |
           args=(--skip-existing)
-          [ "${{ inputs.public }}" != "false" ] && args+=(--public)
+          [ "$PUBLIC_INPUT" != "false" ] && args+=(--public)
           for r in ${{ vars.LAYERS_REGIONS || env.DEFAULT_REGIONS }}; do args+=(--region "$r"); done
           layer/publish-shutdown.sh "${args[@]}"
       - name: Attach to the 'layers' release

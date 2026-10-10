@@ -33,6 +33,12 @@ resource "aws_iam_role_policy_attachment" "basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+# tracing_config Active needs permission to write segments (SAM and CDK add this themselves)
+resource "aws_iam_role_policy_attachment" "xray" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${var.function_name}"
   retention_in_days = var.log_retention_days
@@ -65,7 +71,7 @@ resource "aws_lambda_function" "this" {
   }
 
   tags       = var.tags
-  depends_on = [aws_iam_role_policy_attachment.basic]
+  depends_on = [aws_iam_role_policy_attachment.basic, aws_iam_role_policy_attachment.xray]
 }
 
 resource "aws_lambda_function_url" "this" {
